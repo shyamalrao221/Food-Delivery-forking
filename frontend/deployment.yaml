@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
         - name: food-delivery-frontend
-          image: jeevankumar01/food-delivery-frontend:latest
+          image: duskyguy/frontend-image:latest
           ports:
             - containerPort: 80
           imagePullPolicy: Always
