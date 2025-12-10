@@ -1,5 +1,4 @@
 pipeline {
-    // The pipeline will run on your local Jenkins executor (localhost).
     agent any
 
     environment {
@@ -7,13 +6,10 @@ pipeline {
         FRONTEND_DIR = 'frontend'
         BACKEND_DIR = 'backend'
         
-        // --- UPDATED IMAGE NAMES ---
         FRONTEND_IMAGE = 'duskyguy/frontend-image'
         BACKEND_IMAGE = 'duskyguy/food-backend'
-        // ---------------------------
         
         DOCKER_CREDS = '4141de9a-d3bb-4a93-a2bd-101bef59c800'  // DockerHub credentials ID
-        // Note: K8s/AWS variables are harmless but not used.
         KUBECONFIG_CRED = 'kubeconfig-aws'
         AWS_CREDS = 'AWS-Credentials'
         AWS_REGION = 'ap-south-1'
@@ -32,10 +28,11 @@ pipeline {
             steps {
                 script {
                     echo "🔧 Checking if Frontend image ${FRONTEND_IMAGE}:latest exists on DockerHub..."
-                    def frontendExists = sh(
-                        script: "docker pull ${FRONTEND_IMAGE}:latest || echo 'not found'",
-                        returnStatus: true
-                    )
+                    
+                    // --- CHANGED FROM sh TO bat ---
+                    bat(script: "docker pull ${FRONTEND_IMAGE}:latest", returnStatus: true)
+                    def frontendExists = env.ERRORLEVEL
+                    // ------------------------------------
 
                     def dockerImageFrontend
 
@@ -55,10 +52,11 @@ pipeline {
             steps {
                 script {
                     echo "🔧 Checking if Backend image ${BACKEND_IMAGE}:latest exists on DockerHub..."
-                    def backendExists = sh(
-                        script: "docker pull ${BACKEND_IMAGE}:latest || echo 'not found'",
-                        returnStatus: true
-                    )
+                    
+                    // --- CHANGED FROM sh TO bat ---
+                    bat(script: "docker pull ${BACKEND_IMAGE}:latest", returnStatus: true)
+                    def backendExists = env.ERRORLEVEL
+                    // ------------------------------------
 
                     def dockerImageBackend
 
@@ -76,7 +74,6 @@ pipeline {
 
         stage('Push Images to DockerHub') {
             when {
-                // Only runs if at least one image was newly built or tagged.
                 expression { env.DOCKER_IMAGE_FRONTEND != null || env.DOCKER_IMAGE_BACKEND != null }
             }
             steps {
@@ -109,7 +106,7 @@ pipeline {
             echo "✅ Build and Push completed successfully on localhost Jenkins! Deployment was skipped."
         }
         failure {
-            echo "❌ Build/Push failed. Ensure Docker is running and Jenkins user has Docker permissions on localhost."
+            echo "❌ Build/Push failed. Check logs for details. Remember to ensure Docker is running and the Jenkins user has Docker permissions on your Windows machine."
         }
     }
 }
