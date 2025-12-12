@@ -154,7 +154,8 @@ pipeline {
         }
     }
 }
-
+    
+    }
     post {
         success {
             echo "✅ Build, Push, and Deploy completed successfully!"
