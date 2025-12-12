@@ -75,32 +75,40 @@ pipeline {
 
        // --- Find and REPLACE the content of this stage ---
 stage('Push Images to DockerHub') {
-    steps {
-        script {
-            echo "📦 Pushing Docker images to DockerHub..."
-            
-            // This 'withDockerRegistry' block is where you need to add the correct push commands
-            withDockerRegistry(credentialsId: 'dockerhub-credentials', url: 'https://index.docker.io/v1/') {
-                
-                // ⬆️ CORRECT CODE STARTS HERE ⬆️
-                
-                echo "⬆️ Pushing Frontend images (duskyguy/frontend-image)..."
-                // Push the versioned image (e.g., :8)
-                sh "docker push duskyguy/frontend-image:8"
-                // Push the 'latest' tag
-                sh "docker push duskyguy/frontend-image:latest"
+            // Only execute this stage if an image was actually built in the previous steps
+            when {
+                expression { env.DOCKER_IMAGE_FRONTEND != null || env.DOCKER_IMAGE_BACKEND != null }
+            }
+            steps {
+                script {
+                    echo "📦 Pushing Docker images to DockerHub..."
+                    
+                    // Uses the DOCKER_CREDS ID defined in your environment block ('my-dockerhub-creds')
+                    docker.withRegistry('https://index.docker.io/v1/', "${DOCKER_CREDS}") {
+                        
+                        // Push Frontend Image (if it was built)
+                        if (env.DOCKER_IMAGE_FRONTEND) {
+                            echo "⬆️ Pushing Frontend images (${FRONTEND_IMAGE})..."
+                            // .push() pushes the image tagged with the ${BUILD_NUMBER}
+                            env.DOCKER_IMAGE_FRONTEND.push()
+                            // .push('latest') pushes the image with the 'latest' tag
+                            env.DOCKER_IMAGE_FRONTEND.push('latest')
+                        } else {
+                            echo "Frontend image not rebuilt. Skipping push."
+                        }
 
-                echo "⬆️ Pushing Backend images (duskyguy/food-backend)..."
-                // Push the versioned image (e.g., :8)
-                sh "docker push duskyguy/food-backend:8"
-                // Push the 'latest' tag
-                sh "docker push duskyguy/food-backend:latest"
-                
-                // ⬇️ CORRECT CODE ENDS HERE ⬇️
+                        // Push Backend Image (if it was built)
+                        if (env.DOCKER_IMAGE_BACKEND) {
+                            echo "⬆️ Pushing Backend images (${BACKEND_IMAGE})..."
+                            env.DOCKER_IMAGE_BACKEND.push()
+                            env.DOCKER_IMAGE_BACKEND.push('latest')
+                        } else {
+                            echo "Backend image not rebuilt. Skipping push."
+                        }
+                    }
+                }
             }
         }
-    }
-}
 // --------------------------------------------------
         // NOTE: The 'Deploy' stage is missing from the original file, 
         // which is why the success message says deployment was skipped.
