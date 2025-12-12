@@ -9,7 +9,7 @@ pipeline {
         FRONTEND_IMAGE = 'duskyguy/frontend-image'
         BACKEND_IMAGE = 'duskyguy/food-backend'
         
-        DOCKER_CREDS = 'my-dockerhub-creds'  // DockerHub credentials ID
+        DOCKER_CREDS = 'my-dockerhub-creds'  // DockerHub credentials ID.
         KUBECONFIG_CRED = 'kubeconfig-aws'
         AWS_CREDS = 'AWS-Credentials'
         AWS_REGION = 'ap-south-1'
