@@ -9,10 +9,16 @@ pipeline {
         FRONTEND_IMAGE = 'duskyguy/frontend-image'
         BACKEND_IMAGE = 'duskyguy/food-backend'
         
-        DOCKER_CREDS = 'my-dockerhub-creds'  // DockerHub credentials ID.
-        KUBECONFIG_CRED = 'kubeconfig-aws'
-        AWS_CREDS = 'AWS-Credentials'
-        AWS_REGION = 'ap-south-1'
+        DOCKER_CREDS = 'my-dockerhub-creds'     // DockerHub credentials ID.
+        
+        // -----------------------------------------------------------------
+        // MODIFIED FOR GCP/GKE
+        // -----------------------------------------------------------------
+        GCP_CRED_ID = 'my-gcp-service-account'   // ID of the Jenkins File credential for your GCP Service Account Key (JSON file)
+        GCP_PROJECT = 'your-gcp-project-id-here' // <<< CHANGE THIS to your GCP Project ID
+        GCP_ZONE = 'us-central1-a'               // <<< CHANGE THIS to your GKE cluster's zone/region
+        GKE_CLUSTER = 'food-delivery-cluster'    // <<< CHANGE THIS to your GKE cluster name
+        // AWS variables REMOVED
     }
 
     stages {
@@ -28,15 +34,10 @@ pipeline {
             steps {
                 script {
                     echo "🔧 Checking if Frontend image ${FRONTEND_IMAGE}:latest exists on DockerHub..."
-                    
-                    // --- CORRECTED: Use 'sh' for Linux, captures exit status in env.EXIT_STATUS ---
                     sh(script: "docker pull ${FRONTEND_IMAGE}:latest", returnStatus: true)
                     def frontendExists = env.EXIT_STATUS
-                    // -----------------------------------------------------------------------------
-
                     def dockerImageFrontend
 
-                    // Docker pull returns 0 (success) if the image exists, and non-zero if it fails (doesn't exist).
                     if (frontendExists != 0) {
                         echo "🛠️ Building new Frontend Docker image: ${FRONTEND_IMAGE}:${BUILD_NUMBER}"
                         dockerImageFrontend = docker.build("${FRONTEND_IMAGE}:${BUILD_NUMBER}", "./${FRONTEND_DIR}")
@@ -53,12 +54,8 @@ pipeline {
             steps {
                 script {
                     echo "🔧 Checking if Backend image ${BACKEND_IMAGE}:latest exists on DockerHub..."
-                    
-                    // --- CORRECTED: Use 'sh' for Linux, captures exit status in env.EXIT_STATUS ---
                     sh(script: "docker pull ${BACKEND_IMAGE}:latest", returnStatus: true)
                     def backendExists = env.EXIT_STATUS
-                    // -----------------------------------------------------------------------------
-
                     def dockerImageBackend
 
                     if (backendExists != 0) {
@@ -73,9 +70,7 @@ pipeline {
             }
         }
 
-       // --- Find and REPLACE the content of this stage ---
-stage('Push Images to DockerHub') {
-            // Only execute this stage if an image was actually built in the previous steps
+        stage('Push Images to DockerHub') {
             when {
                 expression { env.DOCKER_IMAGE_FRONTEND != null || env.DOCKER_IMAGE_BACKEND != null }
             }
@@ -83,21 +78,16 @@ stage('Push Images to DockerHub') {
                 script {
                     echo "📦 Pushing Docker images to DockerHub..."
                     
-                    // Uses the DOCKER_CREDS ID defined in your environment block ('my-dockerhub-creds')
                     docker.withRegistry('https://index.docker.io/v1/', "${DOCKER_CREDS}") {
                         
-                        // Push Frontend Image (if it was built)
                         if (env.DOCKER_IMAGE_FRONTEND) {
                             echo "⬆️ Pushing Frontend images (${FRONTEND_IMAGE})..."
-                            // .push() pushes the image tagged with the ${BUILD_NUMBER}
                             env.DOCKER_IMAGE_FRONTEND.push()
-                            // .push('latest') pushes the image with the 'latest' tag
                             env.DOCKER_IMAGE_FRONTEND.push('latest')
                         } else {
                             echo "Frontend image not rebuilt. Skipping push."
                         }
 
-                        // Push Backend Image (if it was built)
                         if (env.DOCKER_IMAGE_BACKEND) {
                             echo "⬆️ Pushing Backend images (${BACKEND_IMAGE})..."
                             env.DOCKER_IMAGE_BACKEND.push()
@@ -109,18 +99,43 @@ stage('Push Images to DockerHub') {
                 }
             }
         }
-// --------------------------------------------------
-        // NOTE: The 'Deploy' stage is missing from the original file, 
-        // which is why the success message says deployment was skipped.
+        
+        // -----------------------------------------------------------------
+        // NEW GKE DEPLOYMENT STAGE
+        // -----------------------------------------------------------------
+        stage('Deploy to GKE Kubernetes') {
+            steps {
+                script {
+                    echo "🚢 Deploying application to Google Kubernetes Engine (GKE)..."
+                    
+                    // Securely load GCP Service Account Key file
+                    withCredentials([file(credentialsId: "${GCP_CRED_ID}", variable: 'GCP_SA_KEY_FILE')]) {
+                        
+                        // Authenticate and configure kubectl for GKE cluster
+                        sh "gcloud auth activate-service-account --key-file=\${GCP_SA_KEY_FILE}"
+                        sh "gcloud container clusters get-credentials ${GKE_CLUSTER} --zone ${GCP_ZONE} --project ${GCP_PROJECT}"
+                        
+                        // Update the image tags in the manifest files
+                        echo "Updating Kubernetes deployment manifests..."
+                        sh "sed -i 's|DOCKER_IMAGE_FRONTEND_VERSION|${FRONTEND_IMAGE}:${BUILD_NUMBER}|g' k8s/frontend-deployment.yaml"
+                        sh "sed -i 's|DOCKER_IMAGE_BACKEND_VERSION|${BACKEND_IMAGE}:${BUILD_NUMBER}|g' k8s/backend-deployment.yaml"
+                        
+                        echo "Applying new deployment to GKE cluster..."
+                        // Apply the updated manifest files
+                        sh "kubectl apply -f k8s/"
+                    }
+                    echo "Deployment completed."
+                }
+            }
+        }
     }
 
     post {
         success {
-            echo "✅ Build and Push completed successfully on localhost Jenkins! Deployment was skipped."
+            echo "✅ Build, Push, and Deploy completed successfully!"
         }
         failure {
-            // --- CORRECTED: Removed Windows-specific text ---
-            echo "❌ Build/Push failed. Check logs for details. Remember to ensure Docker is running and the Jenkins user has Docker permissions."
+            echo "❌ Build/Push/Deploy failed. Check logs for details."
         }
     }
 }
