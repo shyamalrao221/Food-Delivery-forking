@@ -121,33 +121,39 @@ pipeline {
         // GKE DEPLOYMENT STAGE - Modified to use the correct variables
         // -----------------------------------------------------------------
         stage('Deploy to GKE Kubernetes') {
-            steps {
-                script {
-                    echo "🚢 Deploying application to Google Kubernetes Engine (GKE)..."
-                    
-                    // Securely load GCP Service Account Key file
-                    withCredentials([file(credentialsId: "${GCP_CRED_ID}", variable: 'GCP_SA_KEY_FILE')]) {
-                        sh "ls -R"
-                        // Authenticate and configure kubectl for GKE cluster
-                        sh "gcloud auth activate-service-account --key-file=\${GCP_SA_KEY_FILE}"
-                        sh "gcloud container clusters get-credentials ${GKE_CLUSTER} --zone ${GCP_ZONE} --project ${GCP_PROJECT}"
-                        
-                        // Update the image tags in the manifest files
-                        echo "Updating Kubernetes deployment manifests..."
-                        
-                        // Use the string variables defined in the build stage
-                        sh "sed -i 's|DOCKER_IMAGE_FRONTEND_VERSION|${FRONTEND_IMAGE}:${BUILD_NUMBER}|g' k8s/frontend-deployment.yaml"
-                        sh "sed -i 's|DOCKER_IMAGE_BACKEND_VERSION|${BACKEND_IMAGE}:${BUILD_NUMBER}|g' k8s/backend-deployment.yaml"
-                        
-                        echo "Applying new deployment to GKE cluster..."
-                        // Apply the updated manifest files
-                        sh "kubectl apply -f k8s/"
-                    }
-                    echo "Deployment completed."
-                }
+    steps {
+        script {
+            echo "🚢 Deploying application to Google Kubernetes Engine (GKE)..."
+            
+            // Securely load GCP Service Account Key file
+            withCredentials([file(credentialsId: "${GCP_CRED_ID}", variable: 'GCP_SA_KEY_FILE')]) {
+                
+                // --- DEBUG: REMOVE THIS LINE BEFORE FINAL RUN ---
+                // The 'ls -R' command is no longer needed. Remove it.
+                // sh "ls -R" 
+                
+                // Authenticate and configure kubectl for GKE cluster
+                sh "gcloud auth activate-service-account --key-file=\${GCP_SA_KEY_FILE}"
+                sh "gcloud container clusters get-credentials ${GKE_CLUSTER} --zone ${GCP_ZONE} --project ${GCP_PROJECT}"
+                
+                // Update the image tags in the manifest files
+                echo "Updating Kubernetes deployment manifests..."
+                
+                // 1. SED for Frontend (Corrected Path: frontend/deployment.yaml)
+                sh "sed -i 's|DOCKER_IMAGE_FRONTEND_VERSION|${FRONTEND_IMAGE}:${BUILD_NUMBER}|g' frontend/deployment.yaml"
+
+                // 2. SED for Backend (Corrected Path: backend/deployment.yaml)
+                sh "sed -i 's|DOCKER_IMAGE_BACKEND_VERSION|${BACKEND_IMAGE}:${BUILD_NUMBER}|g' backend/deployment.yaml"
+
+                echo "Applying new deployment to GKE cluster..."
+                
+                // 3. KUBECTL APPLY (Corrected Paths: Must list all four files)
+                sh "kubectl apply -f frontend/deployment.yaml -f frontend/service.yaml -f backend/deployment.yaml -f backend/service.yaml"
             }
+            echo "Deployment completed."
         }
     }
+}
 
     post {
         success {
