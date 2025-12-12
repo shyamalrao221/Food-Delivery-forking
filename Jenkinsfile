@@ -127,7 +127,7 @@ pipeline {
                     
                     // Securely load GCP Service Account Key file
                     withCredentials([file(credentialsId: "${GCP_CRED_ID}", variable: 'GCP_SA_KEY_FILE')]) {
-                        
+                        sh "ls -R"
                         // Authenticate and configure kubectl for GKE cluster
                         sh "gcloud auth activate-service-account --key-file=\${GCP_SA_KEY_FILE}"
                         sh "gcloud container clusters get-credentials ${GKE_CLUSTER} --zone ${GCP_ZONE} --project ${GCP_PROJECT}"
