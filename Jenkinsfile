@@ -82,7 +82,8 @@ pipeline {
                         
                         if (env.DOCKER_IMAGE_FRONTEND) {
                             echo "⬆️ Pushing Frontend images (${FRONTEND_IMAGE})..."
-                            env.DOCKER_IMAGE_FRONTEND.push()
+                            // THESE TWO LINES ARE MISSING OR INCORRECTLY TYPED IN YOUR GITHUB FILE
+                            env.DOCKER_IMAGE_FRONTEND.push()       
                             env.DOCKER_IMAGE_FRONTEND.push('latest')
                         } else {
                             echo "Frontend image not rebuilt. Skipping push."
@@ -90,7 +91,8 @@ pipeline {
 
                         if (env.DOCKER_IMAGE_BACKEND) {
                             echo "⬆️ Pushing Backend images (${BACKEND_IMAGE})..."
-                            env.DOCKER_IMAGE_BACKEND.push()
+                            // THESE TWO LINES ARE MISSING OR INCORRECTLY TYPED IN YOUR GITHUB FILE
+                            env.DOCKER_IMAGE_BACKEND.push()        
                             env.DOCKER_IMAGE_BACKEND.push('latest')
                         } else {
                             echo "Backend image not rebuilt. Skipping push."
