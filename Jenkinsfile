@@ -29,13 +29,14 @@ pipeline {
                 script {
                     echo "🔧 Checking if Frontend image ${FRONTEND_IMAGE}:latest exists on DockerHub..."
                     
-                    // --- CHANGED FROM sh TO bat ---
-                    bat(script: "docker pull ${FRONTEND_IMAGE}:latest", returnStatus: true)
-                    def frontendExists = env.ERRORLEVEL
-                    // ------------------------------------
+                    // --- CORRECTED: Use 'sh' for Linux, captures exit status in env.EXIT_STATUS ---
+                    sh(script: "docker pull ${FRONTEND_IMAGE}:latest", returnStatus: true)
+                    def frontendExists = env.EXIT_STATUS
+                    // -----------------------------------------------------------------------------
 
                     def dockerImageFrontend
 
+                    // Docker pull returns 0 (success) if the image exists, and non-zero if it fails (doesn't exist).
                     if (frontendExists != 0) {
                         echo "🛠️ Building new Frontend Docker image: ${FRONTEND_IMAGE}:${BUILD_NUMBER}"
                         dockerImageFrontend = docker.build("${FRONTEND_IMAGE}:${BUILD_NUMBER}", "./${FRONTEND_DIR}")
@@ -53,10 +54,10 @@ pipeline {
                 script {
                     echo "🔧 Checking if Backend image ${BACKEND_IMAGE}:latest exists on DockerHub..."
                     
-                    // --- CHANGED FROM sh TO bat ---
-                    bat(script: "docker pull ${BACKEND_IMAGE}:latest", returnStatus: true)
-                    def backendExists = env.ERRORLEVEL
-                    // ------------------------------------
+                    // --- CORRECTED: Use 'sh' for Linux, captures exit status in env.EXIT_STATUS ---
+                    sh(script: "docker pull ${BACKEND_IMAGE}:latest", returnStatus: true)
+                    def backendExists = env.EXIT_STATUS
+                    // -----------------------------------------------------------------------------
 
                     def dockerImageBackend
 
@@ -93,12 +94,14 @@ pipeline {
                             env.DOCKER_IMAGE_BACKEND.push()
                             env.DOCKER_IMAGE_BACKEND.push('latest')
                         } else {
-                             echo "Backend image not rebuilt. Skipping push."
+                            echo "Backend image not rebuilt. Skipping push."
                         }
                     }
                 }
             }
         }
+        // NOTE: The 'Deploy' stage is missing from the original file, 
+        // which is why the success message says deployment was skipped.
     }
 
     post {
@@ -106,7 +109,8 @@ pipeline {
             echo "✅ Build and Push completed successfully on localhost Jenkins! Deployment was skipped."
         }
         failure {
-            echo "❌ Build/Push failed. Check logs for details. Remember to ensure Docker is running and the Jenkins user has Docker permissions on your Windows machine."
+            // --- CORRECTED: Removed Windows-specific text ---
+            echo "❌ Build/Push failed. Check logs for details. Remember to ensure Docker is running and the Jenkins user has Docker permissions."
         }
     }
 }
