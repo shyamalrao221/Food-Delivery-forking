@@ -70,7 +70,8 @@ pipeline {
             }
         }
 
-       stage('Push Images to DockerHub') {
+      stage('Push Images to DockerHub') {
+    // Retain the 'when' condition
     when {
         expression { env.DOCKER_IMAGE_FRONTEND != null || env.DOCKER_IMAGE_BACKEND != null }
     }
@@ -78,35 +79,30 @@ pipeline {
         script {
             echo "📦 Pushing Docker images to DockerHub..."
             
-            // Use the correct syntax for the Docker Pipeline plugin
+            // Use withDockerRegistry for login, but use sh for push.
             docker.withRegistry('https://index.docker.io/v1/', "${DOCKER_CREDS}") {
                 
-                if (env.DOCKER_IMAGE_FRONTEND) {
-                    echo "⬆️ Pushing Frontend images (${env.FRONTEND_IMAGE_NAME})..."
-                    
-                    // You must convert the string tag back into a Docker object to call .push()
-                    docker.image(env.DOCKER_IMAGE_FRONTEND).push()
-                    
-                    // Push the 'latest' tag. If the variable is just the numbered tag,
-                    // you need to use the full 'latest' tag name if it was created.
-                    // Assuming the 'latest' tag was created in the build stage:
-                    docker.image("${env.FRONTEND_IMAGE_NAME}:latest").push() 
-                    
+                // Assuming you have defined FRONTEND_IMAGE_NAME and DOCKER_IMAGE_FRONTEND 
+                // somewhere (even if they are currently null).
+                def frontend_base = "${env.FRONTEND_IMAGE_NAME}"
+                def frontend_tagged = "${env.DOCKER_IMAGE_FRONTEND}"
+                def backend_base = "${env.BACKEND_IMAGE_NAME}"
+                def backend_tagged = "${env.DOCKER_IMAGE_BACKEND}"
+
+                if (frontend_tagged != 'null' && frontend_tagged != '') {
+                    echo "⬆️ Pushing Frontend images (${frontend_base})..."
+                    sh "docker push ${frontend_tagged}"            // e.g., duskyguy/frontend-image:16
+                    sh "docker push ${frontend_base}:latest"       // e.g., duskyguy/frontend-image:latest
                 } else {
-                    echo "Frontend image not rebuilt. Skipping push."
+                    echo "Frontend image name variable is empty/null. Skipping push."
                 }
 
-                if (env.DOCKER_IMAGE_BACKEND) {
-                    echo "⬆️ Pushing Backend images (${env.BACKEND_IMAGE_NAME})..."
-                    
-                    // You must convert the string tag back into a Docker object to call .push()
-                    docker.image(env.DOCKER_IMAGE_BACKEND).push() 
-                    
-                    // Push the 'latest' tag
-                    docker.image("${env.BACKEND_IMAGE_NAME}:latest").push()
-                    
+                if (backend_tagged != 'null' && backend_tagged != '') {
+                    echo "⬆️ Pushing Backend images (${backend_base})..."
+                    sh "docker push ${backend_tagged}"             // e.g., duskyguy/food-backend:16
+                    sh "docker push ${backend_base}:latest"        // e.g., duskyguy/food-backend:latest
                 } else {
-                    echo "Backend image not rebuilt. Skipping push."
+                    echo "Backend image name variable is empty/null. Skipping push."
                 }
             }
         }
