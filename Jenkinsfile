@@ -14,9 +14,9 @@ pipeline {
         // -----------------------------------------------------------------
         // MODIFIED FOR GCP/GKE
         // -----------------------------------------------------------------
-        GCP_CRED_ID = 'my-gcp-service-account'   // ID of the Jenkins File credential for your GCP Service Account Key (JSON file)
-        GCP_PROJECT = 'your-gcp-project-id-here' // <<< CHANGE THIS to your GCP Project ID
-        GCP_ZONE = 'us-central1-a'               // <<< CHANGE THIS to your GKE cluster's zone/region
+        GCP_CRED_ID = 'my-gcp-service-account'   // ID of the Jenkins File credential (Secret File)
+        GCP_PROJECT = 'ha-demo-480714'           // <<< CONFIRMED PROJECT ID
+        GCP_ZONE = 'asia-south1-b'               // <<< CONFIRMED ZONE
         GKE_CLUSTER = 'food-delivery-cluster'    // <<< CHANGE THIS to your GKE cluster name
         // AWS variables REMOVED
     }
