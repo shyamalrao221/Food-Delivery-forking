@@ -85,42 +85,38 @@ pipeline {
             }
         }
 
-        stage('Push Images to DockerHub') {
-            // Check if either of the Docker objects was created/loaded
-            when {
-                expression { env.DOCKER_IMAGE_FRONTEND_OBJ != null || env.DOCKER_IMAGE_BACKEND_OBJ != null }
-            }
-            steps {
-                script {
-                    echo "📦 Pushing Docker images to DockerHub..."
-                    
-                    // Use withDockerRegistry for login/logout using credentials
-                    docker.withRegistry('https://index.docker.io/v1/', "${DOCKER_CREDS}") {
-                        
-                        if (env.DOCKER_IMAGE_FRONTEND_OBJ) {
-                            echo "⬆️ Pushing Frontend images (${FRONTEND_IMAGE})..."
-                            
-                            // Correct: Use the Docker object's .push() method
-                            env.DOCKER_IMAGE_FRONTEND_OBJ.push() 
-                            // The 'latest' tag was applied during the build/load, so pushing the object pushes all its tags.
-                        } else {
-                            echo "Frontend Docker object is null. Skipping push."
-                        }
+       stage('Push Images to DockerHub') {
+    // Note: The 'when' condition is removed because the variables used here (FRONTEND_IMAGE, BUILD_NUMBER) 
+    // are global environment variables and are always available.
+    steps {
+        script {
+            echo "📦 Pushing Docker images to DockerHub..."
+            
+            // Use withDockerRegistry for login/logout using credentials
+            docker.withRegistry('https://index.docker.io/v1/', "${DOCKER_CREDS}") {
+                
+                // --- PUSH FRONTEND IMAGES ---
+                echo "⬆️ Pushing Frontend images (${FRONTEND_IMAGE})..."
+                
+                // 1. Push the numbered tag (e.g., duskyguy/frontend-image:18)
+                sh "docker push ${FRONTEND_IMAGE}:${BUILD_NUMBER}"
+                
+                // 2. Push the 'latest' tag
+                sh "docker push ${FRONTEND_IMAGE}:latest"
+                
 
-                        if (env.DOCKER_IMAGE_BACKEND_OBJ) {
-                            echo "⬆️ Pushing Backend images (${BACKEND_IMAGE})..."
-                            
-                            // Correct: Use the Docker object's .push() method
-                            env.DOCKER_IMAGE_BACKEND_OBJ.push()
-                            // The 'latest' tag was applied during the build/load, so pushing the object pushes all its tags.
-                        } else {
-                            echo "Backend Docker object is null. Skipping push."
-                        }
-                    }
-                }
+                // --- PUSH BACKEND IMAGES ---
+                echo "⬆️ Pushing Backend images (${BACKEND_IMAGE})..."
+                
+                // 1. Push the numbered tag (e.g., duskyguy/food-backend:18)
+                sh "docker push ${BACKEND_IMAGE}:${BUILD_NUMBER}"
+                
+                // 2. Push the 'latest' tag
+                sh "docker push ${BACKEND_IMAGE}:latest"
             }
         }
-        
+    }
+}
         // -----------------------------------------------------------------
         // GKE DEPLOYMENT STAGE - Modified to use the correct variables
         // -----------------------------------------------------------------
