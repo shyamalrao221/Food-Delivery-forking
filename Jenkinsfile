@@ -9,7 +9,7 @@ pipeline {
         FRONTEND_IMAGE = 'duskyguy/frontend-image'
         BACKEND_IMAGE = 'duskyguy/food-backend'
         
-        DOCKER_CREDS = 'my-dockerhub-creds'     // DockerHub credentials ID.
+        DOCKER_CREDS = 'my-dockerhub-creds'       // DockerHub credentials ID.
         
         // -----------------------------------------------------------------
         // MODIFIED FOR GCP/GKE
@@ -18,7 +18,6 @@ pipeline {
         GCP_PROJECT = 'ha-demo-480714'           // <<< CONFIRMED PROJECT ID
         GCP_ZONE = 'asia-south1-b'               // <<< CONFIRMED ZONE
         GKE_CLUSTER = 'food-delivery-cluster'    // <<< CHANGE THIS to your GKE cluster name
-        // AWS variables REMOVED
     }
 
     stages {
@@ -34,18 +33,29 @@ pipeline {
             steps {
                 script {
                     echo "🔧 Checking if Frontend image ${FRONTEND_IMAGE}:latest exists on DockerHub..."
+                    
+                    // Use sh to execute docker pull and check exit status
                     sh(script: "docker pull ${FRONTEND_IMAGE}:latest", returnStatus: true)
                     def frontendExists = env.EXIT_STATUS
-                    def dockerImageFrontend
+                    def dockerImageFrontend // Declared for scope
 
                     if (frontendExists != 0) {
                         echo "🛠️ Building new Frontend Docker image: ${FRONTEND_IMAGE}:${BUILD_NUMBER}"
+                        
+                        // 1. Build and create the Docker Object
                         dockerImageFrontend = docker.build("${FRONTEND_IMAGE}:${BUILD_NUMBER}", "./${FRONTEND_DIR}")
+                        
+                        // 2. Tag 'latest'
                         dockerImageFrontend.tag('latest')
                     } else {
-                        echo "✅ Frontend image already exists. Skipping build."
+                        echo "✅ Frontend image already exists. Skipping build. Will use existing tag: ${FRONTEND_IMAGE}:latest"
+                        // 3. Mandatory: Create the object from the existing image so it can be pushed/used later
+                        dockerImageFrontend = docker.image("${FRONTEND_IMAGE}:latest")
                     }
-                    env.DOCKER_IMAGE_FRONTEND = dockerImageFrontend
+                    
+                    // 4. Assign the Docker object to the environment variable for persistence
+                    env.DOCKER_IMAGE_FRONTEND_OBJ = dockerImageFrontend
+                    env.FRONTEND_TAGGED_IMAGE = "${FRONTEND_IMAGE}:${BUILD_NUMBER}" // Store the string tag for k8s deployment
                 }
             }
         }
@@ -56,61 +66,63 @@ pipeline {
                     echo "🔧 Checking if Backend image ${BACKEND_IMAGE}:latest exists on DockerHub..."
                     sh(script: "docker pull ${BACKEND_IMAGE}:latest", returnStatus: true)
                     def backendExists = env.EXIT_STATUS
-                    def dockerImageBackend
+                    def dockerImageBackend // Declared for scope
 
                     if (backendExists != 0) {
                         echo "🛠️ Building new Backend Docker image: ${BACKEND_IMAGE}:${BUILD_NUMBER}"
                         dockerImageBackend = docker.build("${BACKEND_IMAGE}:${BUILD_NUMBER}", "./${BACKEND_DIR}")
                         dockerImageBackend.tag('latest')
                     } else {
-                        echo "✅ Backend image already exists. Skipping build."
+                        echo "✅ Backend image already exists. Skipping build. Will use existing tag: ${BACKEND_IMAGE}:latest"
+                        // Mandatory: Create the object from the existing image
+                        dockerImageBackend = docker.image("${BACKEND_IMAGE}:latest")
                     }
-                    env.DOCKER_IMAGE_BACKEND = dockerImageBackend
+                    
+                    // Assign the Docker object to the environment variable for persistence
+                    env.DOCKER_IMAGE_BACKEND_OBJ = dockerImageBackend
+                    env.BACKEND_TAGGED_IMAGE = "${BACKEND_IMAGE}:${BUILD_NUMBER}" // Store the string tag for k8s deployment
                 }
             }
         }
 
-      stage('Push Images to DockerHub') {
-    // Retain the 'when' condition
-    when {
-        expression { env.DOCKER_IMAGE_FRONTEND != null || env.DOCKER_IMAGE_BACKEND != null }
-    }
-    steps {
-        script {
-            echo "📦 Pushing Docker images to DockerHub..."
-            
-            // Use withDockerRegistry for login, but use sh for push.
-            docker.withRegistry('https://index.docker.io/v1/', "${DOCKER_CREDS}") {
-                
-                // Assuming you have defined FRONTEND_IMAGE_NAME and DOCKER_IMAGE_FRONTEND 
-                // somewhere (even if they are currently null).
-                def frontend_base = "${env.FRONTEND_IMAGE_NAME}"
-                def frontend_tagged = "${env.DOCKER_IMAGE_FRONTEND}"
-                def backend_base = "${env.BACKEND_IMAGE_NAME}"
-                def backend_tagged = "${env.DOCKER_IMAGE_BACKEND}"
+        stage('Push Images to DockerHub') {
+            // Check if either of the Docker objects was created/loaded
+            when {
+                expression { env.DOCKER_IMAGE_FRONTEND_OBJ != null || env.DOCKER_IMAGE_BACKEND_OBJ != null }
+            }
+            steps {
+                script {
+                    echo "📦 Pushing Docker images to DockerHub..."
+                    
+                    // Use withDockerRegistry for login/logout using credentials
+                    docker.withRegistry('https://index.docker.io/v1/', "${DOCKER_CREDS}") {
+                        
+                        if (env.DOCKER_IMAGE_FRONTEND_OBJ) {
+                            echo "⬆️ Pushing Frontend images (${FRONTEND_IMAGE})..."
+                            
+                            // Correct: Use the Docker object's .push() method
+                            env.DOCKER_IMAGE_FRONTEND_OBJ.push() 
+                            // The 'latest' tag was applied during the build/load, so pushing the object pushes all its tags.
+                        } else {
+                            echo "Frontend Docker object is null. Skipping push."
+                        }
 
-                if (frontend_tagged != 'null' && frontend_tagged != '') {
-                    echo "⬆️ Pushing Frontend images (${frontend_base})..."
-                    sh "docker push ${frontend_tagged}"            // e.g., duskyguy/frontend-image:16
-                    sh "docker push ${frontend_base}:latest"       // e.g., duskyguy/frontend-image:latest
-                } else {
-                    echo "Frontend image name variable is empty/null. Skipping push."
-                }
-
-                if (backend_tagged != 'null' && backend_tagged != '') {
-                    echo "⬆️ Pushing Backend images (${backend_base})..."
-                    sh "docker push ${backend_tagged}"             // e.g., duskyguy/food-backend:16
-                    sh "docker push ${backend_base}:latest"        // e.g., duskyguy/food-backend:latest
-                } else {
-                    echo "Backend image name variable is empty/null. Skipping push."
+                        if (env.DOCKER_IMAGE_BACKEND_OBJ) {
+                            echo "⬆️ Pushing Backend images (${BACKEND_IMAGE})..."
+                            
+                            // Correct: Use the Docker object's .push() method
+                            env.DOCKER_IMAGE_BACKEND_OBJ.push()
+                            // The 'latest' tag was applied during the build/load, so pushing the object pushes all its tags.
+                        } else {
+                            echo "Backend Docker object is null. Skipping push."
+                        }
+                    }
                 }
             }
         }
-    }
-}
         
         // -----------------------------------------------------------------
-        // NEW GKE DEPLOYMENT STAGE
+        // GKE DEPLOYMENT STAGE - Modified to use the correct variables
         // -----------------------------------------------------------------
         stage('Deploy to GKE Kubernetes') {
             steps {
@@ -126,6 +138,8 @@ pipeline {
                         
                         // Update the image tags in the manifest files
                         echo "Updating Kubernetes deployment manifests..."
+                        
+                        // Use the string variables defined in the build stage
                         sh "sed -i 's|DOCKER_IMAGE_FRONTEND_VERSION|${FRONTEND_IMAGE}:${BUILD_NUMBER}|g' k8s/frontend-deployment.yaml"
                         sh "sed -i 's|DOCKER_IMAGE_BACKEND_VERSION|${BACKEND_IMAGE}:${BUILD_NUMBER}|g' k8s/backend-deployment.yaml"
                         
