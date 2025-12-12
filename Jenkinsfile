@@ -70,37 +70,48 @@ pipeline {
             }
         }
 
-        stage('Push Images to DockerHub') {
-            when {
-                expression { env.DOCKER_IMAGE_FRONTEND != null || env.DOCKER_IMAGE_BACKEND != null }
-            }
-            steps {
-                script {
-                    echo "📦 Pushing Docker images to DockerHub..."
+       stage('Push Images to DockerHub') {
+    when {
+        expression { env.DOCKER_IMAGE_FRONTEND != null || env.DOCKER_IMAGE_BACKEND != null }
+    }
+    steps {
+        script {
+            echo "📦 Pushing Docker images to DockerHub..."
+            
+            // Use the correct syntax for the Docker Pipeline plugin
+            docker.withRegistry('https://index.docker.io/v1/', "${DOCKER_CREDS}") {
+                
+                if (env.DOCKER_IMAGE_FRONTEND) {
+                    echo "⬆️ Pushing Frontend images (${env.FRONTEND_IMAGE_NAME})..."
                     
-                    docker.withRegistry('https://index.docker.io/v1/', "${DOCKER_CREDS}") {
-                        
-                        if (env.DOCKER_IMAGE_FRONTEND) {
-                            echo "⬆️ Pushing Frontend images (${FRONTEND_IMAGE})..."
-                            // THESE TWO LINES ARE MISSING OR INCORRECTLY TYPED IN YOUR GITHUB FILE
-                            env.DOCKER_IMAGE_FRONTEND.push()       
-                            env.DOCKER_IMAGE_FRONTEND.push('latest')
-                        } else {
-                            echo "Frontend image not rebuilt. Skipping push."
-                        }
+                    // You must convert the string tag back into a Docker object to call .push()
+                    docker.image(env.DOCKER_IMAGE_FRONTEND).push()
+                    
+                    // Push the 'latest' tag. If the variable is just the numbered tag,
+                    // you need to use the full 'latest' tag name if it was created.
+                    // Assuming the 'latest' tag was created in the build stage:
+                    docker.image("${env.FRONTEND_IMAGE_NAME}:latest").push() 
+                    
+                } else {
+                    echo "Frontend image not rebuilt. Skipping push."
+                }
 
-                        if (env.DOCKER_IMAGE_BACKEND) {
-                            echo "⬆️ Pushing Backend images (${BACKEND_IMAGE})..."
-                            // THESE TWO LINES ARE MISSING OR INCORRECTLY TYPED IN YOUR GITHUB FILE
-                            env.DOCKER_IMAGE_BACKEND.push()        
-                            env.DOCKER_IMAGE_BACKEND.push('latest')
-                        } else {
-                            echo "Backend image not rebuilt. Skipping push."
-                        }
-                    }
+                if (env.DOCKER_IMAGE_BACKEND) {
+                    echo "⬆️ Pushing Backend images (${env.BACKEND_IMAGE_NAME})..."
+                    
+                    // You must convert the string tag back into a Docker object to call .push()
+                    docker.image(env.DOCKER_IMAGE_BACKEND).push() 
+                    
+                    // Push the 'latest' tag
+                    docker.image("${env.BACKEND_IMAGE_NAME}:latest").push()
+                    
+                } else {
+                    echo "Backend image not rebuilt. Skipping push."
                 }
             }
         }
+    }
+}
         
         // -----------------------------------------------------------------
         // NEW GKE DEPLOYMENT STAGE
