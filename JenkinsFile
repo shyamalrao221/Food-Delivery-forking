@@ -4,11 +4,23 @@ pipeline {
     agent {
         docker {
             image 'node:lts'
-args '-u root -v /var/run/docker.sock:/var/run/docker.sock -v /usr/bin/docker:/usr/bin/docker'
-}
+            // MOUNTS EXPLAINED:
+            // 1. -u root: To install npm packages without permission errors
+            // 2. /var/run/docker.sock: To let the container talk to the Docker Daemon
+            // 3. /usr/bin/docker: To let the container use the 'docker' command
+            // 4. /usr/local/bin/kubectl: To let the container use the 'kubectl' command (non-snap version)
+            // 5. /home/shyam: To let kubectl find your Minikube certificates/config files
+            // 6. -e KUBECONFIG: To tell kubectl exactly where the config file is hiding
+            args '''-u root 
+                    -v /var/run/docker.sock:/var/run/docker.sock 
+                    -v /usr/bin/docker:/usr/bin/docker 
+                    -v /usr/local/bin/kubectl:/usr/local/bin/kubectl 
+                    -v /home/shyam:/home/shyam 
+                    -e KUBECONFIG=/home/shyam/.kube/config'''
+        }
     }
 
-    // 2. Environment Variables..
+    // 2. Environment Variables
     environment {
         DOCKER_REGISTRY_USER = 'duskyguy'
         DOCKER_REGISTRY = "docker.io/${DOCKER_REGISTRY_USER}"
@@ -59,8 +71,7 @@ args '-u root -v /var/run/docker.sock:/var/run/docker.sock -v /usr/bin/docker:/u
                         sh "echo \$DOCKER_PASSWORD | docker login docker.io -u \$DOCKER_USER --password-stdin"
                     }
 
-                    // --- FIX 1: Pre-pull the image to avoid Docker build networking issues (DNS timeout) ---
-                    // The Frontend Dockerfile uses 'nginx:alpine', so we pull it here.
+                    // Pre-pull the image to avoid Docker build networking issues
                     sh 'docker pull nginx:alpine'
 
                     // Build and Push Backend Image
@@ -87,6 +98,8 @@ args '-u root -v /var/run/docker.sock:/var/run/docker.sock -v /usr/bin/docker:/u
                 script {
                     // Update and apply Frontend deployment manifest
                     sh "sed -i 's|image: .*|image: ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION}|g' frontend/deployment.yml"
+                    
+                    // Apply the manifest using the mounted kubectl
                     sh "kubectl apply -f frontend/deployment.yml"
                     
                     echo "Deployment manifests applied."
@@ -95,7 +108,7 @@ args '-u root -v /var/run/docker.sock:/var/run/docker.sock -v /usr/bin/docker:/u
         }
     }
 
-    // 4. Post-Actions: Notifications and Cleanup
+    // 4. Post-Actions
     post {
         always {
             echo 'Pipeline finished.'
@@ -103,7 +116,6 @@ args '-u root -v /var/run/docker.sock:/var/run/docker.sock -v /usr/bin/docker:/u
         success {
             echo 'Deployment successful! Images pushed and manifest applied.'
         }
-        // --- FIX 2: Simplified failure block to fix Groovy error ---
         failure {
             echo 'Build failed!'
         }
