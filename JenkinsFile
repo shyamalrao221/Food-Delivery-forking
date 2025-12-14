@@ -11,7 +11,8 @@ pipeline {
             // 4. /usr/local/bin/kubectl: To let the container use the 'kubectl' command (non-snap version)
             // 5. /home/shyam: To let kubectl find your Minikube certificates/config files
             // 6. -e KUBECONFIG: To tell kubectl exactly where the config file is hiding
-            args '''-u root 
+            args '''--network host 
+                    -u root 
                     -v /var/run/docker.sock:/var/run/docker.sock 
                     -v /usr/bin/docker:/usr/bin/docker 
                     -v /usr/local/bin/kubectl:/usr/local/bin/kubectl 
