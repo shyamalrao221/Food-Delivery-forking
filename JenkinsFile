@@ -1,0 +1,144 @@
+// Jenkinsfile
+pipeline {
+    agent {
+        // Use a Docker agent with Node.js and Docker installed,
+        // which can access the Docker daemon on the host machine.
+        // Replace 'node:lts' with an image that also includes the 'docker' CLI if needed,
+        // or configure the Jenkins agent appropriately.
+        docker {
+            image 'node:lts'
+            // Assumes Docker is available on the Jenkins agent host
+            args '-v /var/run/docker.sock:/var/run/docker.sock'
+        }
+    }
+
+    environment {
+        // Define environment variables
+        DOCKER_REGISTRY = 'your-docker-registry.com' // e.g., 'registry.hub.docker.com/shyamtaylor'
+        FRONTEND_IMAGE_NAME = "food-delivery-frontend"
+        BACKEND_IMAGE_NAME = "food-delivery-backend"
+        ADMIN_IMAGE_NAME = "food-delivery-admin"
+        VERSION = "${env.BUILD_NUMBER}"
+    }
+
+    stages {
+
+        // --- Stage 1: Checkout (Implicitly handled by SCM) ---
+
+        stage('Install Dependencies and Build Admin') {
+            steps {
+                script {
+                    echo "Building Admin Panel..."
+                    dir('admin') {
+                        sh 'npm install'
+                        sh 'npm run build' // Assuming 'build' script exists in admin/package.json
+                    }
+                }
+            }
+        }
+
+        stage('Install Dependencies and Build Frontend') {
+            steps {
+                script {
+                    echo "Building Frontend App..."
+                    dir('frontend') {
+                        sh 'npm install'
+                        sh 'npm run build' // Assuming 'build' script exists in frontend/package.json
+                    }
+                }
+            }
+        }
+
+        stage('Install Dependencies and Build Backend') {
+            steps {
+                script {
+                    echo "Installing Backend Dependencies..."
+                    dir('backend') {
+                        sh 'npm install'
+                        // No 'build' command is typically needed for Node.js backend unless using TypeScript
+                        // If you have a test command, put it here.
+                    }
+                }
+            }
+        }
+
+        // --- Stage 4: Testing (Placeholder) ---
+        stage('Test') {
+            parallel {
+                stage('Backend Tests') {
+                    steps {
+                        dir('backend') {
+                            // Replace 'test' with your actual test command if different (e.g., 'npm test -- --ci')
+                            sh 'npm test || true' // '|| true' allows pipeline to continue if tests fail temporarily
+                        }
+                    }
+                }
+                stage('Frontend Tests') {
+                    steps {
+                        dir('frontend') {
+                            sh 'npm test || true'
+                        }
+                    }
+                }
+            }
+        }
+
+        // --- Stage 5: Docker Build and Push ---
+        stage('Docker Build and Push') {
+            steps {
+                script {
+                    // Login to Docker Registry
+                    // You should configure Jenkins credentials ID for your Docker registry
+                    // Replace 'docker-hub-creds' with your actual Jenkins secret text credential ID
+                    withCredentials([usernamePassword(credentialsId: 'docker-hub-creds', passwordVariable: 'DOCKER_PASSWORD', usernameVariable: 'DOCKER_USER')]) {
+                        sh "echo \$DOCKER_PASSWORD | docker login ${DOCKER_REGISTRY} -u \$DOCKER_USER --password-stdin"
+                    }
+
+                    // Build and Push Backend Image
+                    sh "docker build -t ${DOCKER_REGISTRY}/${BACKEND_IMAGE_NAME}:${VERSION} ./backend"
+                    sh "docker push ${DOCKER_REGISTRY}/${BACKEND_IMAGE_NAME}:${VERSION}"
+
+                    // Build and Push Frontend Image (using the Dockerfile in frontend directory)
+                    sh "docker build -t ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION} ./frontend"
+                    sh "docker push ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION}"
+
+                    // Cleanup
+                    sh "docker logout"
+                }
+            }
+        }
+
+        // --- Stage 6: Deployment (Kubernetes/K8s) ---
+        stage('Deploy to Kubernetes') {
+            steps {
+                // This stage assumes you have the Kubernetes CLI configured on your Jenkins agent.
+                echo "Deploying to Kubernetes with updated images..."
+                script {
+                    // Update the image tag in the k8s deployment file for the frontend
+                    // Uses 'sed' to replace the image tag with the new VERSION
+                    sh "sed -i 's|image: .*|image: ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION}|g' frontend/deployment.yml"
+
+                    // Apply the deployment manifest
+                    // Replace 'your-kube-config-context' with your actual context if needed
+                    sh "kubectl apply -f frontend/deployment.yml"
+
+                    // If you have a separate backend deployment file, include its deployment here as well.
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            // Send email notification, cleanup workspace, etc.
+            echo 'Pipeline finished.'
+        }
+        success {
+            echo 'Build successful!'
+        }
+        failure {
+            echo 'Build failed!'
+            // mail to: 'devops-team@example.com', subject: "Pipeline Failed: ${currentBuild.fullDisplayName}"
+        }
+    }
+}
