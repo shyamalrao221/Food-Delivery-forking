@@ -1,0 +1,23 @@
+# Kubernetes API version for Service
+apiVersion: v1
+kind: Service
+metadata:
+  # Name of the Service
+  name: food-delivery-frontend-service
+  labels:
+    app: food-delivery-frontend
+spec:
+  # Type of Service: NodePort exposes the service on each Node's IP at a static port
+  # For production, you might prefer LoadBalancer or an Ingress resource.
+  type: NodePort
+  # Selector matches the labels defined in the Deployment's Pod template
+  selector:
+    app: food-delivery-frontend
+  ports:
+    # Port on the Service
+    - port: 80
+      # Port on the Pod (containerPort: 80 from Deployment)
+      targetPort: 80
+      # Optional: The static port on the Node's IP (usually in 30000-32767 range)
+      # If omitted, a random port in the range is assigned.
+      nodePort: 30080
