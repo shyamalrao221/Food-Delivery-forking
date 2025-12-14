@@ -30,3 +30,8 @@ spec:
     - port: 5000
       targetPort: 5000
       nodePort: 30002  # Fixed port so you can always find it
+# --- ADD THIS ENV SECTION ---
+        env:
+        - name: MONGO_URL
+          value: "mongodb+srv://<username>:<password>@cluster0.xyz.mongodb.net/food-del" 
+          # ^ REPLACE THIS with your actual connection string from MongoDB Atlas
