@@ -16,7 +16,13 @@ spec:
       - name: food-delivery-backend
         image: duskyguy/food-delivery-backend:latest
         ports:
-        - containerPort: 5000 
+        - containerPort: 5000
+        # --- CORRECT LOCATION FOR ENV VARIABLES ---
+        env:
+        - name: MONGO_URL
+          value: "mongodb+srv://<username>:<password>@cluster0.xyz.mongodb.net/food-del" 
+          # ^ Remember to replace <username> and <password> with your real credentials!
+
 ---
 apiVersion: v1
 kind: Service
@@ -29,9 +35,4 @@ spec:
   ports:
     - port: 5000
       targetPort: 5000
-      nodePort: 30002  # Fixed port so you can always find it
-# --- ADD THIS ENV SECTION ---
-        env:
-        - name: MONGO_URL
-          value: "mongodb+srv://<username>:<password>@cluster0.xyz.mongodb.net/food-del" 
-          # ^ REPLACE THIS with your actual connection string from MongoDB Atlas
+      nodePort: 30002
