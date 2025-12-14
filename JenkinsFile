@@ -97,13 +97,23 @@ pipeline {
             steps {
                 echo "Deploying to Kubernetes with image tag ${VERSION}..."
                 script {
-                    // Update and apply Frontend deployment manifest
+                    // 1. Deploy Frontend
                     sh "sed -i 's|image: .*|image: ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION}|g' frontend/deployment.yml"
-                    
-                    // Apply the manifest using the mounted kubectl
                     sh "kubectl apply -f frontend/deployment.yml"
+
+                    // 2. Deploy Backend
+                    // Update the image version in the yaml file
+                    sh "sed -i 's|image: .*|image: ${DOCKER_REGISTRY}/${BACKEND_IMAGE_NAME}:${VERSION}|g' backend/deployment.yml"
+                    // Apply the backend config
+                    sh "kubectl apply -f backend/deployment.yml"
+
+                    // 3. Deploy Admin
+                    // Update the image version in the yaml file
+                    sh "sed -i 's|image: .*|image: ${DOCKER_REGISTRY}/${ADMIN_IMAGE_NAME}:${VERSION}|g' admin/deployment.yml"
+                    // Apply the admin config
+                    sh "kubectl apply -f admin/deployment.yml"
                     
-                    echo "Deployment manifests applied."
+                    echo "All Deployment manifests applied."
                 }
             }
         }
