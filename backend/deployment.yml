@@ -20,7 +20,7 @@ spec:
         # --- CORRECT LOCATION FOR ENV VARIABLES ---
         env:
         - name: MONGO_URL
-          value: "mongodb+srv://<username>:<password>@cluster0.xyz.mongodb.net/food-del" 
+          value: "mongodb+srv://shyam:Taylor@@cluster0.xyz.mongodb.net/food-del" 
           # ^ Remember to replace <username> and <password> with your real credentials!
 
 ---
