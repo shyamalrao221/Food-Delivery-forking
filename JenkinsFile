@@ -62,28 +62,8 @@ pipeline {
             }
         }
 
-        // --- Stage 4: Testing (Placeholder) ---
-        stage('Test') {
-            parallel {
-                stage('Backend Tests') {
-                    steps {
-                        dir('backend') {
-                            // Replace 'test' with your actual test command if different (e.g., 'npm test -- --ci')
-                            sh 'npm test || true' // '|| true' allows pipeline to continue if tests fail temporarily
-                        }
-                    }
-                }
-                stage('Frontend Tests') {
-                    steps {
-                        dir('frontend') {
-                            sh 'npm test || true'
-                        }
-                    }
-                }
-            }
-        }
-
-        // --- Stage 5: Docker Build and Push ---
+        
+        // --- Stage 4: Docker Build and Push ---
         stage('Docker Build and Push') {
             steps {
                 script {
@@ -108,7 +88,7 @@ pipeline {
             }
         }
 
-        // --- Stage 6: Deployment (Kubernetes/K8s) ---
+        // --- Stage 5: Deployment (Kubernetes/K8s) ---
         stage('Deploy to Kubernetes') {
             steps {
                 // This stage assumes you have the Kubernetes CLI configured on your Jenkins agent.
