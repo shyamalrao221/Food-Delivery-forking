@@ -8,7 +8,7 @@ pipeline {
         }
     }
 
-    // 2. Environment Variables
+    // 2. Environment Variables..
     environment {
         DOCKER_REGISTRY_USER = 'duskyguy'
         DOCKER_REGISTRY = "docker.io/${DOCKER_REGISTRY_USER}"
