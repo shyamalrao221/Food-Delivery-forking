@@ -1,22 +1,16 @@
 // Jenkinsfile for Food Delivery CI/CD Pipeline
 pipeline {
-    // 1. Agent Configuration: Use an image that has Node.js AND Docker CLI
-    // This simplifies the build and removes the need for the manual 'docker pull' hack.
+    // 1. Agent Configuration
     agent {
         docker {
-            // Using a base image that already includes the Docker CLI and Node is best practice.
-            // If this image doesn't exist, you might need to build a custom one or use a Linux agent.
-            // For simplicity, we stick to 'node:lts' and assume Docker CLI is inherited from the DIND setup.
             image 'node:lts'
-            // Ensure the agent can access the host's Docker daemon.
             args '-v /var/run/docker.sock:/var/run/docker.sock'
         }
     }
 
-    // 2. Environment Variables: Define user and registry details once
+    // 2. Environment Variables
     environment {
         DOCKER_REGISTRY_USER = 'duskyguy'
-        // The DOCKER_REGISTRY forms the full tag prefix (e.g., docker.io/duskyguy)
         DOCKER_REGISTRY = "docker.io/${DOCKER_REGISTRY_USER}"
         
         FRONTEND_IMAGE_NAME = "food-delivery-frontend"
@@ -25,7 +19,7 @@ pipeline {
         VERSION = "${env.BUILD_NUMBER}"
     }
 
-    // 3. Stages: Clearly separated build steps
+    // 3. Stages
     stages {
 
         stage('Build: Admin Panel') {
@@ -57,27 +51,27 @@ pipeline {
             }
         }
 
-        // We skip the Test stage as the npm test script was missing/failing previously.
-        // You can re-enable this once tests are written!
-
         stage('Docker Build and Push') {
             steps {
                 script {
-                    // Login using the 'docker-hub-creds' defined in Jenkins Credentials
+                    // Login using the 'docker-hub-creds'
                     withCredentials([usernamePassword(credentialsId: 'docker-hub-creds', passwordVariable: 'DOCKER_PASSWORD', usernameVariable: 'DOCKER_USER')]) {
-                        // FIX: Use correct Docker Hub hostname and DOCKER_USER
                         sh "echo \$DOCKER_PASSWORD | docker login docker.io -u \$DOCKER_USER --password-stdin"
                     }
 
-                    // Build and Push Backend Image (Assuming Dockerfile exists in ./backend)
+                    // --- FIX 1: Pre-pull the image to avoid Docker build networking issues (DNS timeout) ---
+                    // The Frontend Dockerfile uses 'nginx:alpine', so we pull it here.
+                    sh 'docker pull nginx:alpine'
+
+                    // Build and Push Backend Image
                     sh "docker build -t ${DOCKER_REGISTRY}/${BACKEND_IMAGE_NAME}:${VERSION} ./backend"
                     sh "docker push ${DOCKER_REGISTRY}/${BACKEND_IMAGE_NAME}:${VERSION}"
 
-                    // Build and Push Frontend Image (Assuming Dockerfile exists in ./frontend)
+                    // Build and Push Frontend Image
                     sh "docker build -t ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION} ./frontend"
                     sh "docker push ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION}"
                     
-                    // Build and Push Admin Image (Assuming Dockerfile exists in ./admin)
+                    // Build and Push Admin Image
                     sh "docker build -t ${DOCKER_REGISTRY}/${ADMIN_IMAGE_NAME}:${VERSION} ./admin"
                     sh "docker push ${DOCKER_REGISTRY}/${ADMIN_IMAGE_NAME}:${VERSION}"
 
@@ -91,12 +85,10 @@ pipeline {
             steps {
                 echo "Deploying to Kubernetes with image tag ${VERSION}..."
                 script {
-                    // Example deployment steps using kubectl
-                    // Update the image tag for Frontend deployment
+                    // Update and apply Frontend deployment manifest
                     sh "sed -i 's|image: .*|image: ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION}|g' frontend/deployment.yml"
                     sh "kubectl apply -f frontend/deployment.yml"
                     
-                    // You would add similar steps here for backend and admin deployments
                     echo "Deployment manifests applied."
                 }
             }
@@ -106,14 +98,14 @@ pipeline {
     // 4. Post-Actions: Notifications and Cleanup
     post {
         always {
-            // Stop the Node agent container after the run (handled by Jenkins)
             echo 'Pipeline finished.'
         }
         success {
             echo 'Deployment successful! Images pushed and manifest applied.'
         }
+        // --- FIX 2: Simplified failure block to fix Groovy error ---
         failure {
-            echo "Build failed at stage: ${currentBuild.stages.collect { it.name + (it.status == 'FAILED' ? '*' : '') }.join(', ')}"
+            echo 'Build failed!'
         }
     }
 }
