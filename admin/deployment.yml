@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: food-delivery-admin-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: food-delivery-admin
+  template:
+    metadata:
+      labels:
+        app: food-delivery-admin
+    spec:
+      containers:
+      - name: food-delivery-admin
+        image: duskyguy/food-delivery-admin:latest
+        ports:
+        - containerPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: food-delivery-admin-service
+spec:
+  type: NodePort
+  selector:
+    app: food-delivery-admin
+  ports:
+    - port: 80
+      targetPort: 80
+      nodePort: 30003 # Fixed port so you can always find it
