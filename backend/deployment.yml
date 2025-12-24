@@ -14,14 +14,14 @@ spec:
     spec:
       containers:
       - name: food-delivery-backend
-        image: duskyguy/food-delivery-backend:latest
+        # Updated to point to your GCP Artifact Registry
+        image: us-central1-docker.pkg.dev/ha-demo-480714/my-app-repo/food-delivery-backend:latest
         ports:
         - containerPort: 5000
-        # --- CORRECT LOCATION FOR ENV VARIABLES ---
         env:
         - name: MONGO_URL
-          value: "mongodb+srv://shyam:Taylor@@cluster0.xyz.mongodb.net/food-del" 
-          # ^ Remember to replace <username> and <password> with your real credentials!
+          # If password is 'Taylor@', use 'Taylor%40'
+          value: "mongodb+srv://shyam:Taylor%40@cluster0.xyz.mongodb.net/food-del"
 
 ---
 apiVersion: v1
@@ -29,10 +29,10 @@ kind: Service
 metadata:
   name: food-delivery-backend-service
 spec:
-  type: NodePort
+  # Changed to LoadBalancer so you get a public IP for your Frontend to connect to
+  type: LoadBalancer
   selector:
     app: food-delivery-backend
   ports:
     - port: 5000
       targetPort: 5000
-      nodePort: 30002
