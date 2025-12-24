@@ -2,11 +2,19 @@ pipeline {
     agent {
         docker {
             image 'node:lts'
+            // MOUNTS EXPLAINED:
+            // 1. /var/run/docker.sock: Connects to host Docker engine
+            // 2. /usr/bin & /usr/lib: Shares host system binaries (needed for gcloud helper)
+            // 3. /usr/local/bin/kubectl: Shares the kubectl tool
+            // 4. /home/shyam: Shares certificates and kubeconfig
             args '''--network host 
                     -u root 
                     -v /var/run/docker.sock:/var/run/docker.sock 
-                    -v /usr/bin/docker:/usr/bin/docker 
-                    -v /usr/local/bin/kubectl:/usr/local/bin/kubectl'''
+                    -v /usr/bin:/usr/bin 
+                    -v /usr/lib:/usr/lib
+                    -v /usr/local/bin/kubectl:/usr/local/bin/kubectl 
+                    -v /home/shyam:/home/shyam 
+                    -e KUBECONFIG=/home/shyam/.kube/config'''
         }
     }
 
@@ -23,45 +31,51 @@ pipeline {
     }
 
     stages {
-        stage('Build: Admin, Frontend, & Backend') {
+        stage('Build: App Assets') {
             steps {
-                echo "Building assets..."
+                echo "Installing dependencies and building assets..."
                 dir('admin') { sh 'npm install --silent && npm run build' }
                 dir('frontend') { sh 'npm install --silent && npm run build' }
                 dir('backend') { sh 'npm install --silent' }
             }
         }
 
-     stage('Docker Build and Push to GCP') {
+        stage('Docker Build and Push to GCP') {
             steps {
                 script {
+                    // This 'gcp-auth-key' must be a 'Secret File' type in Jenkins
                     withCredentials([file(credentialsId: 'gcp-auth-key', variable: 'GCP_KEY_FILE')]) {
-                        echo "Installing Google Cloud SDK..."
+                        
+                        echo "Installing Google Cloud SDK into Workspace..."
                         sh '''
-                            rm -rf /root/google-cloud-sdk
+                            # Clean old install and install new into shared Workspace
+                            rm -rf ${WORKSPACE}/google-cloud-sdk
                             apt-get update && apt-get install -y curl python3
                             curl -o install.sh -sSL https://sdk.cloud.google.com
-                            bash install.sh --disable-prompts --install-dir=/root > /dev/null
+                            bash install.sh --disable-prompts --install-dir=${WORKSPACE} > /dev/null
+                            
+                            # Create symlink so Host Docker Daemon can find the login helper
+                            ln -sf ${WORKSPACE}/google-cloud-sdk/bin/docker-credential-gcloud /usr/bin/docker-credential-gcloud
                         '''
                         
-                        def SDK_BIN = "/root/google-cloud-sdk/bin"
-                        def GCLOUD_BIN = "${SDK_BIN}/gcloud"
+                        def SDK_BIN = "${WORKSPACE}/google-cloud-sdk/bin"
                         
-                        // This block is the magic fix: it adds the SDK to the PATH 
-                        // so Docker can find 'docker-credential-gcloud'
                         withEnv(["PATH+GCLOUD=${SDK_BIN}"]) {
                             echo "Authenticating with GCP..."
-                            sh "${GCLOUD_BIN} auth activate-service-account --key-file=${GCP_KEY_FILE}"
-                            sh "${GCLOUD_BIN} auth configure-docker ${LOCATION}-docker.pkg.dev --quiet"
+                            sh "gcloud auth activate-service-account --key-file=${GCP_KEY_FILE}"
+                            sh "gcloud auth configure-docker ${LOCATION}-docker.pkg.dev --quiet"
 
                             echo "Pushing Images to Artifact Registry..."
                             
+                            // Backend
                             sh "docker build -t ${DOCKER_REGISTRY}/${BACKEND_IMAGE_NAME}:${VERSION} ./backend"
                             sh "docker push ${DOCKER_REGISTRY}/${BACKEND_IMAGE_NAME}:${VERSION}"
 
+                            // Frontend
                             sh "docker build -t ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION} ./frontend"
                             sh "docker push ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION}"
                             
+                            // Admin
                             sh "docker build -t ${DOCKER_REGISTRY}/${ADMIN_IMAGE_NAME}:${VERSION} ./admin"
                             sh "docker push ${DOCKER_REGISTRY}/${ADMIN_IMAGE_NAME}:${VERSION}"
                         }
@@ -72,9 +86,9 @@ pipeline {
 
         stage('Deploy to Kubernetes') {
             steps {
-                echo "Deploying to GKE..."
+                echo "Updating manifests and deploying to GKE..."
                 script {
-                    // Updating images and applying to cluster
+                    // Update image tags in deployment files and apply to cluster
                     sh "sed -i 's|image: .*|image: ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION}|g' frontend/deployment.yml"
                     sh "kubectl apply -f frontend/deployment.yml"
 
@@ -89,7 +103,7 @@ pipeline {
     }
 
     post {
-        success { echo 'Full CI/CD Cycle Complete!' }
-        failure { echo 'Pipeline failed. Check Console Output.' }
+        success { echo 'Full CI/CD Cycle Complete! Images pushed and GKE updated.' }
+        failure { echo 'Pipeline failed. Check Console Output for specific stage error.' }
     }
 }
