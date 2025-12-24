@@ -32,7 +32,7 @@ pipeline {
             }
         }
 
-      stage('Docker Build and Push to GCP') {
+     stage('Docker Build and Push to GCP') {
             steps {
                 script {
                     withCredentials([file(credentialsId: 'gcp-auth-key', variable: 'GCP_KEY_FILE')]) {
@@ -44,23 +44,27 @@ pipeline {
                             bash install.sh --disable-prompts --install-dir=/root > /dev/null
                         '''
                         
-                        // Define the exact path to the gcloud binary
-                        def GCLOUD_BIN = "/root/google-cloud-sdk/bin/gcloud"
+                        def SDK_BIN = "/root/google-cloud-sdk/bin"
+                        def GCLOUD_BIN = "${SDK_BIN}/gcloud"
                         
-                        echo "Authenticating with GCP..."
-                        // Use the absolute path variable here
-                        sh "${GCLOUD_BIN} auth activate-service-account --key-file=${GCP_KEY_FILE}"
-                        sh "${GCLOUD_BIN} auth configure-docker ${LOCATION}-docker.pkg.dev --quiet"
+                        // This block is the magic fix: it adds the SDK to the PATH 
+                        // so Docker can find 'docker-credential-gcloud'
+                        withEnv(["PATH+GCLOUD=${SDK_BIN}"]) {
+                            echo "Authenticating with GCP..."
+                            sh "${GCLOUD_BIN} auth activate-service-account --key-file=${GCP_KEY_FILE}"
+                            sh "${GCLOUD_BIN} auth configure-docker ${LOCATION}-docker.pkg.dev --quiet"
 
-                        echo "Pushing Images to Artifact Registry..."
-                        sh "docker build -t ${DOCKER_REGISTRY}/${BACKEND_IMAGE_NAME}:${VERSION} ./backend"
-                        sh "docker push ${DOCKER_REGISTRY}/${BACKEND_IMAGE_NAME}:${VERSION}"
+                            echo "Pushing Images to Artifact Registry..."
+                            
+                            sh "docker build -t ${DOCKER_REGISTRY}/${BACKEND_IMAGE_NAME}:${VERSION} ./backend"
+                            sh "docker push ${DOCKER_REGISTRY}/${BACKEND_IMAGE_NAME}:${VERSION}"
 
-                        sh "docker build -t ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION} ./frontend"
-                        sh "docker push ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION}"
-                        
-                        sh "docker build -t ${DOCKER_REGISTRY}/${ADMIN_IMAGE_NAME}:${VERSION} ./admin"
-                        sh "docker push ${DOCKER_REGISTRY}/${ADMIN_IMAGE_NAME}:${VERSION}"
+                            sh "docker build -t ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION} ./frontend"
+                            sh "docker push ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION}"
+                            
+                            sh "docker build -t ${DOCKER_REGISTRY}/${ADMIN_IMAGE_NAME}:${VERSION} ./admin"
+                            sh "docker push ${DOCKER_REGISTRY}/${ADMIN_IMAGE_NAME}:${VERSION}"
+                        }
                     }
                 }
             }
