@@ -38,30 +38,33 @@ pipeline {
         }
 
         stage('Docker Build and Push to GCP') {
-            steps {
-                script {
-                    // Use your GCP JSON Key Credential ID
-                    withCredentials([file(credentialsId: 'gcp-auth-key', variable: 'GCP_AUTH')]) {
-                        
-                        // 1. Authenticate with GCP
-                        sh "gcloud auth activate-service-account --key-file=${GCP_AUTH}"
-                        sh "gcloud auth configure-docker ${LOCATION}-docker.pkg.dev --quiet"
+    steps {
+        script {
+            // Use 'credentials' instead of 'withCredentials([file(...)])'
+            // This works specifically with the 'Google Service Account' credential type
+            withCredentials([googleServiceAccount(credentialsId: 'gcp-auth-key')]) {
+                
+                // 1. Authenticate with GCP
+                // The plugin automatically handles the 'gcloud auth' behind the scenes
+                sh "gcloud auth configure-docker ${LOCATION}-docker.pkg.dev --quiet"
 
-                        // 2. Build and Push Backend
-                        sh "docker build -t ${DOCKER_REGISTRY}/${BACKEND_IMAGE_NAME}:${VERSION} ./backend"
-                        sh "docker push ${DOCKER_REGISTRY}/${BACKEND_IMAGE_NAME}:${VERSION}"
+                def REPO_PATH = "${LOCATION}-docker.pkg.dev/${PROJECT_ID}/${REPO_NAME}"
 
-                        // 3. Build and Push Frontend
-                        sh "docker build -t ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION} ./frontend"
-                        sh "docker push ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION}"
-                        
-                        // 4. Build and Push Admin
-                        sh "docker build -t ${DOCKER_REGISTRY}/${ADMIN_IMAGE_NAME}:${VERSION} ./admin"
-                        sh "docker push ${DOCKER_REGISTRY}/${ADMIN_IMAGE_NAME}:${VERSION}"
-                    }
-                }
+                // 2. Build and Push Backend
+                sh "docker build -t ${REPO_PATH}/${BACKEND_IMAGE_NAME}:${VERSION} ./backend"
+                sh "docker push ${REPO_PATH}/${BACKEND_IMAGE_NAME}:${VERSION}"
+
+                // 3. Build and Push Frontend
+                sh "docker build -t ${REPO_PATH}/${FRONTEND_IMAGE_NAME}:${VERSION} ./frontend"
+                sh "docker push ${REPO_PATH}/${FRONTEND_IMAGE_NAME}:${VERSION}"
+                
+                // 4. Build and Push Admin
+                sh "docker build -t ${REPO_PATH}/${ADMIN_IMAGE_NAME}:${VERSION} ./admin"
+                sh "docker push ${REPO_PATH}/${ADMIN_IMAGE_NAME}:${VERSION}"
             }
         }
+    }
+}
 
         stage('Deploy to Kubernetes') {
             steps {
