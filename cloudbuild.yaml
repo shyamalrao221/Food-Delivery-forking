@@ -1,25 +1,31 @@
 steps:
-  # Build Backend
+  # 1. Build Backend
   - name: 'gcr.io/cloud-builders/docker'
     args: ['build', '-t', 'us-central1-docker.pkg.dev/ha-demo-480714/my-docker-repo/backend:$SHORT_SHA', './backend']
 
-  # Build Frontend
+  # 2. Build Frontend
   - name: 'gcr.io/cloud-builders/docker'
     args: ['build', '-t', 'us-central1-docker.pkg.dev/ha-demo-480714/my-docker-repo/frontend:$SHORT_SHA', './frontend']
 
-  # Push Images
+  # 3. Push Backend Image
   - name: 'gcr.io/cloud-builders/docker'
     args: ['push', 'us-central1-docker.pkg.dev/ha-demo-480714/my-docker-repo/backend:$SHORT_SHA']
+
+  # 4. Push Frontend Image
   - name: 'gcr.io/cloud-builders/docker'
     args: ['push', 'us-central1-docker.pkg.dev/ha-demo-480714/my-docker-repo/frontend:$SHORT_SHA']
 
-  # Deploy to GKE
+  # 5. Deploy both to GKE
   - name: 'gcr.io/cloud-builders/gke-deploy'
     args:
       - 'run'
-      - '--filename=backend/deployment.yml,frontend/deployment.yml,frontend/service.yml'
+      - '--filename=backend/deployment.yml'
+      - '--filename=frontend/deployment.yml'
+      - '--filename=frontend/service.yml'
       - '--image=us-central1-docker.pkg.dev/ha-demo-480714/my-docker-repo/backend:$SHORT_SHA'
+      - '--image=us-central1-docker.pkg.dev/ha-demo-480714/my-docker-repo/frontend:$SHORT_SHA'
       - '--location=us-central1-a'
       - '--cluster=my-gke-cluster'
+
 options:
   logging: CLOUD_LOGGING_ONLY
