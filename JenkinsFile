@@ -1,16 +1,7 @@
-// Jenkinsfile for Food Delivery CI/CD Pipeline
 pipeline {
-    // 1. Agent Configuration
     agent {
         docker {
             image 'node:lts'
-            // MOUNTS EXPLAINED:
-            // 1. -u root: To install npm packages without permission errors
-            // 2. /var/run/docker.sock: To let the container talk to the Docker Daemon
-            // 3. /usr/bin/docker: To let the container use the 'docker' command
-            // 4. /usr/local/bin/kubectl: To let the container use the 'kubectl' command (non-snap version)
-            // 5. /home/shyam: To let kubectl find your Minikube certificates/config files
-            // 6. -e KUBECONFIG: To tell kubectl exactly where the config file is hiding
             args '''--network host 
                     -u root 
                     -v /var/run/docker.sock:/var/run/docker.sock 
@@ -21,10 +12,14 @@ pipeline {
         }
     }
 
-    // 2. Environment Variables
     environment {
-        DOCKER_REGISTRY_USER = 'duskyguy'
-        DOCKER_REGISTRY = "docker.io/${DOCKER_REGISTRY_USER}"
+        // GCP SPECIFIC DETAILS
+        PROJECT_ID = 'ha-demo-480714'
+        LOCATION = 'us-central1'
+        REPO_NAME = 'my-app-repo'
+        
+        // FORM THE GCP REGISTRY URL
+        DOCKER_REGISTRY = "${LOCATION}-docker.pkg.dev/${PROJECT_ID}/${REPO_NAME}"
         
         FRONTEND_IMAGE_NAME = "food-delivery-frontend"
         BACKEND_IMAGE_NAME = "food-delivery-backend"
@@ -32,103 +27,62 @@ pipeline {
         VERSION = "${env.BUILD_NUMBER}"
     }
 
-    // 3. Stages
     stages {
-
-        stage('Build: Admin Panel') {
+        stage('Build: Admin, Frontend, & Backend') {
             steps {
-                echo "Building Admin Panel..."
-                dir('admin') {
-                    sh 'npm install --silent'
-                    sh 'npm run build'
-                }
+                echo "Installing dependencies and building assets..."
+                dir('admin') { sh 'npm install --silent && npm run build' }
+                dir('frontend') { sh 'npm install --silent && npm run build' }
+                dir('backend') { sh 'npm install --silent' }
             }
         }
 
-        stage('Build: Frontend App') {
-            steps {
-                echo "Building Frontend App..."
-                dir('frontend') {
-                    sh 'npm install --silent'
-                    sh 'npm run build'
-                }
-            }
-        }
-
-        stage('Build: Backend Dependencies') {
-            steps {
-                echo "Installing Backend Dependencies..."
-                dir('backend') {
-                    sh 'npm install --silent'
-                }
-            }
-        }
-
-        stage('Docker Build and Push') {
+        stage('Docker Build and Push to GCP') {
             steps {
                 script {
-                    // Login using the 'docker-hub-creds'
-                    withCredentials([usernamePassword(credentialsId: 'docker-hub-creds', passwordVariable: 'DOCKER_PASSWORD', usernameVariable: 'DOCKER_USER')]) {
-                        sh "echo \$DOCKER_PASSWORD | docker login docker.io -u \$DOCKER_USER --password-stdin"
+                    // Use your GCP JSON Key Credential ID
+                    withCredentials([file(credentialsId: 'gcp-auth-key', variable: 'GCP_AUTH')]) {
+                        
+                        // 1. Authenticate with GCP
+                        sh "gcloud auth activate-service-account --key-file=${GCP_AUTH}"
+                        sh "gcloud auth configure-docker ${LOCATION}-docker.pkg.dev --quiet"
+
+                        // 2. Build and Push Backend
+                        sh "docker build -t ${DOCKER_REGISTRY}/${BACKEND_IMAGE_NAME}:${VERSION} ./backend"
+                        sh "docker push ${DOCKER_REGISTRY}/${BACKEND_IMAGE_NAME}:${VERSION}"
+
+                        // 3. Build and Push Frontend
+                        sh "docker build -t ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION} ./frontend"
+                        sh "docker push ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION}"
+                        
+                        // 4. Build and Push Admin
+                        sh "docker build -t ${DOCKER_REGISTRY}/${ADMIN_IMAGE_NAME}:${VERSION} ./admin"
+                        sh "docker push ${DOCKER_REGISTRY}/${ADMIN_IMAGE_NAME}:${VERSION}"
                     }
-
-                    // Pre-pull the image to avoid Docker build networking issues
-                    sh 'docker pull nginx:alpine'
-
-                    // Build and Push Backend Image
-                    sh "docker build -t ${DOCKER_REGISTRY}/${BACKEND_IMAGE_NAME}:${VERSION} ./backend"
-                    sh "docker push ${DOCKER_REGISTRY}/${BACKEND_IMAGE_NAME}:${VERSION}"
-
-                    // Build and Push Frontend Image
-                    sh "docker build -t ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION} ./frontend"
-                    sh "docker push ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION}"
-                    
-                    // Build and Push Admin Image
-                    sh "docker build -t ${DOCKER_REGISTRY}/${ADMIN_IMAGE_NAME}:${VERSION} ./admin"
-                    sh "docker push ${DOCKER_REGISTRY}/${ADMIN_IMAGE_NAME}:${VERSION}"
-
-                    // Cleanup
-                    sh "docker logout"
                 }
             }
         }
 
         stage('Deploy to Kubernetes') {
             steps {
-                echo "Deploying to Kubernetes with image tag ${VERSION}..."
+                echo "Updating manifests and deploying to GKE..."
                 script {
-                    // 1. Deploy Frontend
+                    // This updates the yaml files with the new GCP image paths
                     sh "sed -i 's|image: .*|image: ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION}|g' frontend/deployment.yml"
                     sh "kubectl apply -f frontend/deployment.yml"
 
-                    // 2. Deploy Backend
-                    // Update the image version in the yaml file
                     sh "sed -i 's|image: .*|image: ${DOCKER_REGISTRY}/${BACKEND_IMAGE_NAME}:${VERSION}|g' backend/deployment.yml"
-                    // Apply the backend config
                     sh "kubectl apply -f backend/deployment.yml"
 
-                    // 3. Deploy Admin
-                    // Update the image version in the yaml file
                     sh "sed -i 's|image: .*|image: ${DOCKER_REGISTRY}/${ADMIN_IMAGE_NAME}:${VERSION}|g' admin/deployment.yml"
-                    // Apply the admin config
                     sh "kubectl apply -f admin/deployment.yml"
-                    
-                    echo "All Deployment manifests applied."
                 }
             }
         }
     }
 
-    // 4. Post-Actions
     post {
-        always {
-            echo 'Pipeline finished.'
-        }
-        success {
-            echo 'Deployment successful! Images pushed and manifest applied.'
-        }
-        failure {
-            echo 'Build failed!'
-        }
+        success { echo 'Deployment successful to GKE!' }
+        failure { echo 'Pipeline failed. Check Console Output.' }
     }
 }
