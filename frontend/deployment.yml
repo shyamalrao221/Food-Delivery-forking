@@ -21,8 +21,9 @@ spec:
     spec:
       containers:
       - name: frontend-container
-        # Replace 'your-dockerhub-username/repo:tag' with your actual image name
-        image: duskyguy/food-delivery-frontend:latest 
+        # UPDATED: Pointing to your Google Artifact Registry
+        # Cloud Build will automatically replace this with the specific $SHORT_SHA tag
+        image: us-central1-docker.pkg.dev/ha-demo-480714/my-docker-repo/frontend
         imagePullPolicy: Always
         ports:
         # Container port must match the EXPOSE port in your Dockerfile (80)
