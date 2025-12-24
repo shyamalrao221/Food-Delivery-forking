@@ -1,4 +1,4 @@
-# Kubernetes API version for Deployment
+ce# Kubernetes API version for Deployment
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -13,11 +13,11 @@ spec:
   # Selector to identify which Pods belong to this Deployment
   selector:
     matchLabels:
-      app: food-delivery-frontend
+      app: food-delivery-frontend-service
   template:
     metadata:
       labels:
-        app: food-delivery-frontend
+        app: food-delivery-frontend-service
     spec:
       containers:
       - name: frontend-container
