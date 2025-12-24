@@ -2,17 +2,12 @@ pipeline {
     agent {
         docker {
             image 'node:lts'
-            // Added -v /usr/bin/gcloud and -v /usr/lib/google-cloud-sdk
-            // This lets the container "borrow" the gcloud tool from your VM
+            // We only need docker and kubectl mounts now
             args '''--network host 
                     -u root 
                     -v /var/run/docker.sock:/var/run/docker.sock 
                     -v /usr/bin/docker:/usr/bin/docker 
-                    -v /usr/local/bin/kubectl:/usr/local/bin/kubectl 
-                    -v /usr/bin/gcloud:/usr/bin/gcloud
-                    -v /usr/lib/google-cloud-sdk:/usr/lib/google-cloud-sdk
-                    -v /home/shyam:/home/shyam 
-                    -e KUBECONFIG=/home/shyam/.kube/config'''
+                    -v /usr/local/bin/kubectl:/usr/local/bin/kubectl'''
         }
     }
 
@@ -29,36 +24,42 @@ pipeline {
     }
 
     stages {
+        stage('Setup: Install GCP SDK') {
+            steps {
+                echo "Installing Google Cloud SDK..."
+                sh '''
+                    apt-get update && apt-get install -y curl python3
+                    curl -sSL https://sdk.cloud.google.com | bash > /dev/null
+                '''
+            }
+        }
+
         stage('Build: Admin, Frontend, & Backend') {
             steps {
-                echo "Installing dependencies and building assets..."
+                echo "Building assets..."
                 dir('admin') { sh 'npm install --silent && npm run build' }
                 dir('frontend') { sh 'npm install --silent && npm run build' }
                 dir('backend') { sh 'npm install --silent' }
             }
         }
 
-        stage('Docker Build and Push to GCP') {
+        stage('Docker Build and Push') {
             steps {
                 script {
-                    // This ID must be the 'Secret File' type credential you created
                     withCredentials([file(credentialsId: 'gcp-auth-key', variable: 'GCP_KEY_FILE')]) {
+                        // Use the newly installed gcloud from the home directory
+                        def gcloudBin = "/root/google-cloud-sdk/bin/gcloud"
                         
-                        // 1. Authenticate using the secret file
-                        // Note the use of single quotes to avoid interpolation warnings
-                        sh 'gcloud auth activate-service-account --key-file=$GCP_KEY_FILE'
-                        sh "gcloud auth configure-docker ${LOCATION}-docker.pkg.dev --quiet"
+                        sh "${gcloudBin} auth activate-service-account --key-file=${GCP_KEY_FILE}"
+                        sh "${gcloudBin} auth configure-docker ${LOCATION}-docker.pkg.dev --quiet"
 
-                        // 2. Build and Push images
-                        echo "Pushing Backend..."
+                        echo "Pushing Images to GCP..."
                         sh "docker build -t ${DOCKER_REGISTRY}/${BACKEND_IMAGE_NAME}:${VERSION} ./backend"
                         sh "docker push ${DOCKER_REGISTRY}/${BACKEND_IMAGE_NAME}:${VERSION}"
 
-                        echo "Pushing Frontend..."
                         sh "docker build -t ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION} ./frontend"
                         sh "docker push ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION}"
                         
-                        echo "Pushing Admin..."
                         sh "docker build -t ${DOCKER_REGISTRY}/${ADMIN_IMAGE_NAME}:${VERSION} ./admin"
                         sh "docker push ${DOCKER_REGISTRY}/${ADMIN_IMAGE_NAME}:${VERSION}"
                     }
@@ -68,9 +69,8 @@ pipeline {
 
         stage('Deploy to Kubernetes') {
             steps {
-                echo "Updating manifests and deploying to GKE..."
+                echo "Deploying to GKE..."
                 script {
-                    // Update image tags in deployment files and apply
                     sh "sed -i 's|image: .*|image: ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION}|g' frontend/deployment.yml"
                     sh "kubectl apply -f frontend/deployment.yml"
 
@@ -85,7 +85,7 @@ pipeline {
     }
 
     post {
-        success { echo 'Deployment successful to GKE!' }
+        success { echo 'Full CI/CD Cycle Complete!' }
         failure { echo 'Pipeline failed. Check Console Output.' }
     }
 }
