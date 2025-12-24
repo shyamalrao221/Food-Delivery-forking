@@ -84,23 +84,31 @@ pipeline {
             }
         }
 
-        stage('Deploy to Kubernetes') {
+stage('Deploy to Kubernetes') {
             steps {
                 echo "Updating manifests and deploying to GKE..."
                 script {
-                    // Update image tags in deployment files and apply to cluster
-                    sh "sed -i 's|image: .*|image: ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION}|g' frontend/deployment.yml"
-                    sh "kubectl apply -f frontend/deployment.yml"
+                    def SDK_BIN = "${WORKSPACE}/google-cloud-sdk/bin"
+                    
+                    withEnv(["PATH+GCLOUD=${SDK_BIN}"]) {
+                        // 1. Point kubectl to your specific GKE cluster
+                        sh "gcloud container clusters get-credentials my-practice-cluster --region ${LOCATION} --project ${PROJECT_ID}"
 
-                    sh "sed -i 's|image: .*|image: ${DOCKER_REGISTRY}/${BACKEND_IMAGE_NAME}:${VERSION}|g' backend/deployment.yml"
-                    sh "kubectl apply -f backend/deployment.yml"
+                        // 2. Deploy Frontend
+                        sh "sed -i 's|image: .*|image: ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION}|g' frontend/deployment.yml"
+                        sh "kubectl apply -f frontend/deployment.yml"
 
-                    sh "sed -i 's|image: .*|image: ${DOCKER_REGISTRY}/${ADMIN_IMAGE_NAME}:${VERSION}|g' admin/deployment.yml"
-                    sh "kubectl apply -f admin/deployment.yml"
+                        // 3. Deploy Backend
+                        sh "sed -i 's|image: .*|image: ${DOCKER_REGISTRY}/${BACKEND_IMAGE_NAME}:${VERSION}|g' backend/deployment.yml"
+                        sh "kubectl apply -f backend/deployment.yml"
+
+                        // 4. Deploy Admin
+                        sh "sed -i 's|image: .*|image: ${DOCKER_REGISTRY}/${ADMIN_IMAGE_NAME}:${VERSION}|g' admin/deployment.yml"
+                        sh "kubectl apply -f admin/deployment.yml"
+                    }
                 }
             }
         }
-    }
 
     post {
         success { echo 'Full CI/CD Cycle Complete! Images pushed and GKE updated.' }
