@@ -2,23 +2,24 @@ pipeline {
     agent {
         docker {
             image 'node:lts'
+            // Added -v /usr/bin/gcloud and -v /usr/lib/google-cloud-sdk
+            // This lets the container "borrow" the gcloud tool from your VM
             args '''--network host 
                     -u root 
                     -v /var/run/docker.sock:/var/run/docker.sock 
                     -v /usr/bin/docker:/usr/bin/docker 
                     -v /usr/local/bin/kubectl:/usr/local/bin/kubectl 
+                    -v /usr/bin/gcloud:/usr/bin/gcloud
+                    -v /usr/lib/google-cloud-sdk:/usr/lib/google-cloud-sdk
                     -v /home/shyam:/home/shyam 
                     -e KUBECONFIG=/home/shyam/.kube/config'''
         }
     }
 
     environment {
-        // GCP SPECIFIC DETAILS
         PROJECT_ID = 'ha-demo-480714'
         LOCATION = 'us-central1'
         REPO_NAME = 'my-app-repo'
-        
-        // FORM THE GCP REGISTRY URL
         DOCKER_REGISTRY = "${LOCATION}-docker.pkg.dev/${PROJECT_ID}/${REPO_NAME}"
         
         FRONTEND_IMAGE_NAME = "food-delivery-frontend"
@@ -37,42 +38,39 @@ pipeline {
             }
         }
 
-stage('Docker Build and Push to GCP') {
-    steps {
-        script {
-            // Using 'file' which is a standard Jenkins DSL method
-            withCredentials([file(credentialsId: 'gcp-auth-key', variable: 'GCP_KEY_FILE')]) {
-                
-                // 1. Authenticate using the temporary file path Jenkins provides
-                sh "gcloud auth activate-service-account --key-file=${GCP_KEY_FILE}"
-                
-                // 2. Configure Docker to use GCP
-                sh "gcloud auth configure-docker ${LOCATION}-docker.pkg.dev --quiet"
+        stage('Docker Build and Push to GCP') {
+            steps {
+                script {
+                    // This ID must be the 'Secret File' type credential you created
+                    withCredentials([file(credentialsId: 'gcp-auth-key', variable: 'GCP_KEY_FILE')]) {
+                        
+                        // 1. Authenticate using the secret file
+                        // Note the use of single quotes to avoid interpolation warnings
+                        sh 'gcloud auth activate-service-account --key-file=$GCP_KEY_FILE'
+                        sh "gcloud auth configure-docker ${LOCATION}-docker.pkg.dev --quiet"
 
-                def REPO_PATH = "${LOCATION}-docker.pkg.dev/${PROJECT_ID}/${REPO_NAME}"
+                        // 2. Build and Push images
+                        echo "Pushing Backend..."
+                        sh "docker build -t ${DOCKER_REGISTRY}/${BACKEND_IMAGE_NAME}:${VERSION} ./backend"
+                        sh "docker push ${DOCKER_REGISTRY}/${BACKEND_IMAGE_NAME}:${VERSION}"
 
-                // 3. Build and Push images
-                echo "Pushing Backend..."
-                sh "docker build -t ${REPO_PATH}/${BACKEND_IMAGE_NAME}:${VERSION} ./backend"
-                sh "docker push ${REPO_PATH}/${BACKEND_IMAGE_NAME}:${VERSION}"
-
-                echo "Pushing Frontend..."
-                sh "docker build -t ${REPO_PATH}/${FRONTEND_IMAGE_NAME}:${VERSION} ./frontend"
-                sh "docker push ${REPO_PATH}/${FRONTEND_IMAGE_NAME}:${VERSION}"
-                
-                echo "Pushing Admin..."
-                sh "docker build -t ${REPO_PATH}/${ADMIN_IMAGE_NAME}:${VERSION} ./admin"
-                sh "docker push ${REPO_PATH}/${ADMIN_IMAGE_NAME}:${VERSION}"
+                        echo "Pushing Frontend..."
+                        sh "docker build -t ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION} ./frontend"
+                        sh "docker push ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION}"
+                        
+                        echo "Pushing Admin..."
+                        sh "docker build -t ${DOCKER_REGISTRY}/${ADMIN_IMAGE_NAME}:${VERSION} ./admin"
+                        sh "docker push ${DOCKER_REGISTRY}/${ADMIN_IMAGE_NAME}:${VERSION}"
+                    }
+                }
             }
         }
-    }
-}
 
         stage('Deploy to Kubernetes') {
             steps {
                 echo "Updating manifests and deploying to GKE..."
                 script {
-                    // This updates the yaml files with the new GCP image paths
+                    // Update image tags in deployment files and apply
                     sh "sed -i 's|image: .*|image: ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION}|g' frontend/deployment.yml"
                     sh "kubectl apply -f frontend/deployment.yml"
 
