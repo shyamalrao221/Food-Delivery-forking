@@ -1,4 +1,4 @@
-# Kubernetes API version for Service
+# Kubernetes API version for Service.
 apiVersion: v1
 kind: Service
 metadata:
