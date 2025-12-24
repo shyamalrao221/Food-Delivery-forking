@@ -43,25 +43,33 @@ pipeline {
             }
         }
 
-        stage('Docker Build and Push') {
+       stage('Docker Build and Push') {
             steps {
                 script {
                     withCredentials([file(credentialsId: 'gcp-auth-key', variable: 'GCP_KEY_FILE')]) {
-                        // Use the newly installed gcloud from the home directory
-                        def gcloudBin = "/root/google-cloud-sdk/bin/gcloud"
+                        def SDK_PATH = "/root/google-cloud-sdk/bin"
                         
-                        sh "${gcloudBin} auth activate-service-account --key-file=${GCP_KEY_FILE}"
-                        sh "${gcloudBin} auth configure-docker ${LOCATION}-docker.pkg.dev --quiet"
+                        // 1. Add the SDK to the PATH so Docker can find the credential helper
+                        withEnv(["PATH+GCLOUD=${SDK_PATH}"]) {
+                            
+                            // 2. Authenticate
+                            sh "gcloud auth activate-service-account --key-file=${GCP_KEY_FILE}"
+                            sh "gcloud auth configure-docker ${LOCATION}-docker.pkg.dev --quiet"
 
-                        echo "Pushing Images to GCP..."
-                        sh "docker build -t ${DOCKER_REGISTRY}/${BACKEND_IMAGE_NAME}:${VERSION} ./backend"
-                        sh "docker push ${DOCKER_REGISTRY}/${BACKEND_IMAGE_NAME}:${VERSION}"
+                            echo "Pushing Images to GCP..."
+                            
+                            // Backend
+                            sh "docker build -t ${DOCKER_REGISTRY}/${BACKEND_IMAGE_NAME}:${VERSION} ./backend"
+                            sh "docker push ${DOCKER_REGISTRY}/${BACKEND_IMAGE_NAME}:${VERSION}"
 
-                        sh "docker build -t ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION} ./frontend"
-                        sh "docker push ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION}"
-                        
-                        sh "docker build -t ${DOCKER_REGISTRY}/${ADMIN_IMAGE_NAME}:${VERSION} ./admin"
-                        sh "docker push ${DOCKER_REGISTRY}/${ADMIN_IMAGE_NAME}:${VERSION}"
+                            // Frontend
+                            sh "docker build -t ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION} ./frontend"
+                            sh "docker push ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION}"
+                            
+                            // Admin
+                            sh "docker build -t ${DOCKER_REGISTRY}/${ADMIN_IMAGE_NAME}:${VERSION} ./admin"
+                            sh "docker push ${DOCKER_REGISTRY}/${ADMIN_IMAGE_NAME}:${VERSION}"
+                        }
                     }
                 }
             }
