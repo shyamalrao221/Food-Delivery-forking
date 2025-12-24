@@ -32,16 +32,20 @@ pipeline {
             }
         }
 
-        stage('Docker Build and Push to GCP') {
+       stage('Docker Build and Push to GCP') {
             steps {
                 script {
                     withCredentials([file(credentialsId: 'gcp-auth-key', variable: 'GCP_KEY_FILE')]) {
                         echo "Installing Google Cloud SDK..."
-                        // Added rm -rf and --disable-prompts to prevent the 'already exists' error
                         sh '''
                             rm -rf /root/google-cloud-sdk
                             apt-get update && apt-get install -y curl python3
-                            curl -sSL https://sdk.cloud.google.com | bash -- --disable-prompts --install-dir=/root > /dev/null
+                            
+                            # Download the installer script
+                            curl -o install.sh -sSL https://sdk.cloud.google.com
+                            
+                            # Execute the script with flags
+                            bash install.sh --disable-prompts --install-dir=/root > /dev/null
                         '''
                         
                         def SDK_BIN = "/root/google-cloud-sdk/bin"
@@ -52,16 +56,12 @@ pipeline {
                             sh "gcloud auth configure-docker ${LOCATION}-docker.pkg.dev --quiet"
 
                             echo "Pushing Images to Artifact Registry..."
-                            
-                            // Backend
                             sh "docker build -t ${DOCKER_REGISTRY}/${BACKEND_IMAGE_NAME}:${VERSION} ./backend"
                             sh "docker push ${DOCKER_REGISTRY}/${BACKEND_IMAGE_NAME}:${VERSION}"
 
-                            // Frontend
                             sh "docker build -t ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION} ./frontend"
                             sh "docker push ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION}"
                             
-                            // Admin
                             sh "docker build -t ${DOCKER_REGISTRY}/${ADMIN_IMAGE_NAME}:${VERSION} ./admin"
                             sh "docker push ${DOCKER_REGISTRY}/${ADMIN_IMAGE_NAME}:${VERSION}"
                         }
