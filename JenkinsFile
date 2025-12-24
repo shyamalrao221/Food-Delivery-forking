@@ -2,7 +2,6 @@ pipeline {
     agent {
         docker {
             image 'node:lts'
-            // We only need docker and kubectl mounts now
             args '''--network host 
                     -u root 
                     -v /var/run/docker.sock:/var/run/docker.sock 
@@ -24,16 +23,6 @@ pipeline {
     }
 
     stages {
-        stage('Setup: Install GCP SDK') {
-            steps {
-                echo "Installing Google Cloud SDK..."
-                sh '''
-                    apt-get update && apt-get install -y curl python3
-                    curl -sSL https://sdk.cloud.google.com | bash > /dev/null
-                '''
-            }
-        }
-
         stage('Build: Admin, Frontend, & Backend') {
             steps {
                 echo "Building assets..."
@@ -43,37 +32,36 @@ pipeline {
             }
         }
 
-       stage('Docker Build and Push to GCP') {
+        stage('Docker Build and Push to GCP') {
             steps {
                 script {
                     withCredentials([file(credentialsId: 'gcp-auth-key', variable: 'GCP_KEY_FILE')]) {
-                        // 1. Install GCP SDK tools inside the node container
+                        echo "Installing Google Cloud SDK..."
+                        // Added rm -rf and --disable-prompts to prevent the 'already exists' error
                         sh '''
+                            rm -rf /root/google-cloud-sdk
                             apt-get update && apt-get install -y curl python3
-                            curl -sSL https://sdk.cloud.google.com | bash > /dev/null
+                            curl -sSL https://sdk.cloud.google.com | bash -- --disable-prompts --install-dir=/root > /dev/null
                         '''
                         
-                        // 2. Define where the tools are located
                         def SDK_BIN = "/root/google-cloud-sdk/bin"
                         
-                        // 3. Add tools to PATH so 'docker' can find the GCP login helper
                         withEnv(["PATH+GCLOUD=${SDK_BIN}"]) {
-                            
-                            // 4. Login to GCP
+                            echo "Authenticating with GCP..."
                             sh "gcloud auth activate-service-account --key-file=${GCP_KEY_FILE}"
                             sh "gcloud auth configure-docker ${LOCATION}-docker.pkg.dev --quiet"
 
                             echo "Pushing Images to Artifact Registry..."
                             
-                            // Build and Push Backend
+                            // Backend
                             sh "docker build -t ${DOCKER_REGISTRY}/${BACKEND_IMAGE_NAME}:${VERSION} ./backend"
                             sh "docker push ${DOCKER_REGISTRY}/${BACKEND_IMAGE_NAME}:${VERSION}"
 
-                            // Build and Push Frontend
+                            // Frontend
                             sh "docker build -t ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION} ./frontend"
                             sh "docker push ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION}"
                             
-                            // Build and Push Admin
+                            // Admin
                             sh "docker build -t ${DOCKER_REGISTRY}/${ADMIN_IMAGE_NAME}:${VERSION} ./admin"
                             sh "docker push ${DOCKER_REGISTRY}/${ADMIN_IMAGE_NAME}:${VERSION}"
                         }
@@ -86,6 +74,7 @@ pipeline {
             steps {
                 echo "Deploying to GKE..."
                 script {
+                    // Updating images and applying to cluster
                     sh "sed -i 's|image: .*|image: ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION}|g' frontend/deployment.yml"
                     sh "kubectl apply -f frontend/deployment.yml"
 
