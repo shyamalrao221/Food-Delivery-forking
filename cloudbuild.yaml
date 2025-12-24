@@ -21,3 +21,5 @@ steps:
       - '--image=us-central1-docker.pkg.dev/ha-demo-480714/my-docker-repo/backend:$SHORT_SHA'
       - '--location=us-central1-a'
       - '--cluster=my-gke-cluster'
+options:
+  logging: CLOUD_LOGGING_ONLY
