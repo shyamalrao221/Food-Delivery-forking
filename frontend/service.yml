@@ -9,7 +9,7 @@ metadata:
 spec:
   # Type of Service: NodePort exposes the service on each Node's IP at a static port
   # For production, you might prefer LoadBalancer or an Ingress resource.
-  type: NodePort
+  type: LoadBalancer
   # Selector matches the labels defined in the Deployment's Pod template
   selector:
     app: food-delivery-frontend
