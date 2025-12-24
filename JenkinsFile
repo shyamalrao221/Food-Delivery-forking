@@ -43,9 +43,7 @@ pipeline {
         stage('Docker Build and Push to GCP') {
             steps {
                 script {
-                    // This 'gcp-auth-key' must be a 'Secret File' type in Jenkins
                     withCredentials([file(credentialsId: 'gcp-auth-key', variable: 'GCP_KEY_FILE')]) {
-                        
                         echo "Installing Google Cloud SDK into Workspace..."
                         sh '''
                             # Clean old install and install new into shared Workspace
@@ -66,16 +64,12 @@ pipeline {
                             sh "gcloud auth configure-docker ${LOCATION}-docker.pkg.dev --quiet"
 
                             echo "Pushing Images to Artifact Registry..."
-                            
-                            // Backend
                             sh "docker build -t ${DOCKER_REGISTRY}/${BACKEND_IMAGE_NAME}:${VERSION} ./backend"
                             sh "docker push ${DOCKER_REGISTRY}/${BACKEND_IMAGE_NAME}:${VERSION}"
 
-                            // Frontend
                             sh "docker build -t ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION} ./frontend"
                             sh "docker push ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION}"
                             
-                            // Admin
                             sh "docker build -t ${DOCKER_REGISTRY}/${ADMIN_IMAGE_NAME}:${VERSION} ./admin"
                             sh "docker push ${DOCKER_REGISTRY}/${ADMIN_IMAGE_NAME}:${VERSION}"
                         }
@@ -84,7 +78,7 @@ pipeline {
             }
         }
 
-stage('Deploy to Kubernetes') {
+        stage('Deploy to Kubernetes') {
             steps {
                 echo "Updating manifests and deploying to GKE..."
                 script {
@@ -109,6 +103,7 @@ stage('Deploy to Kubernetes') {
                 }
             }
         }
+    } // End of Stages
 
     post {
         success { echo 'Full CI/CD Cycle Complete! Images pushed and GKE updated.' }
