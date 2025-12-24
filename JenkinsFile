@@ -32,7 +32,7 @@ pipeline {
             }
         }
 
-       stage('Docker Build and Push to GCP') {
+      stage('Docker Build and Push to GCP') {
             steps {
                 script {
                     withCredentials([file(credentialsId: 'gcp-auth-key', variable: 'GCP_KEY_FILE')]) {
@@ -40,31 +40,27 @@ pipeline {
                         sh '''
                             rm -rf /root/google-cloud-sdk
                             apt-get update && apt-get install -y curl python3
-                            
-                            # Download the installer script
                             curl -o install.sh -sSL https://sdk.cloud.google.com
-                            
-                            # Execute the script with flags
                             bash install.sh --disable-prompts --install-dir=/root > /dev/null
                         '''
                         
-                        def SDK_BIN = "/root/google-cloud-sdk/bin"
+                        // Define the exact path to the gcloud binary
+                        def GCLOUD_BIN = "/root/google-cloud-sdk/bin/gcloud"
                         
-                        withEnv(["PATH+GCLOUD=${SDK_BIN}"]) {
-                            echo "Authenticating with GCP..."
-                            sh "gcloud auth activate-service-account --key-file=${GCP_KEY_FILE}"
-                            sh "gcloud auth configure-docker ${LOCATION}-docker.pkg.dev --quiet"
+                        echo "Authenticating with GCP..."
+                        // Use the absolute path variable here
+                        sh "${GCLOUD_BIN} auth activate-service-account --key-file=${GCP_KEY_FILE}"
+                        sh "${GCLOUD_BIN} auth configure-docker ${LOCATION}-docker.pkg.dev --quiet"
 
-                            echo "Pushing Images to Artifact Registry..."
-                            sh "docker build -t ${DOCKER_REGISTRY}/${BACKEND_IMAGE_NAME}:${VERSION} ./backend"
-                            sh "docker push ${DOCKER_REGISTRY}/${BACKEND_IMAGE_NAME}:${VERSION}"
+                        echo "Pushing Images to Artifact Registry..."
+                        sh "docker build -t ${DOCKER_REGISTRY}/${BACKEND_IMAGE_NAME}:${VERSION} ./backend"
+                        sh "docker push ${DOCKER_REGISTRY}/${BACKEND_IMAGE_NAME}:${VERSION}"
 
-                            sh "docker build -t ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION} ./frontend"
-                            sh "docker push ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION}"
-                            
-                            sh "docker build -t ${DOCKER_REGISTRY}/${ADMIN_IMAGE_NAME}:${VERSION} ./admin"
-                            sh "docker push ${DOCKER_REGISTRY}/${ADMIN_IMAGE_NAME}:${VERSION}"
-                        }
+                        sh "docker build -t ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION} ./frontend"
+                        sh "docker push ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION}"
+                        
+                        sh "docker build -t ${DOCKER_REGISTRY}/${ADMIN_IMAGE_NAME}:${VERSION} ./admin"
+                        sh "docker push ${DOCKER_REGISTRY}/${ADMIN_IMAGE_NAME}:${VERSION}"
                     }
                 }
             }
