@@ -2,11 +2,10 @@ pipeline {
     agent {
         docker {
             image 'node:lts'
-            // MOUNTS EXPLAINED:
-            // 1. /var/run/docker.sock: Connects to host Docker engine
-            // 2. /usr/bin & /usr/lib: Shares host system binaries (needed for gcloud helper)
-            // 3. /usr/local/bin/kubectl: Shares the kubectl tool
-            // 4. /home/shyam: Shares certificates and kubeconfig
+            /* Note: Since we are using an e2-medium VM, 
+               ensure your Docker daemon on the host is running 
+               and the 'jenkins' user has permission to /var/run/docker.sock 
+            */
             args '''--network host 
                     -u root 
                     -v /var/run/docker.sock:/var/run/docker.sock 
@@ -21,6 +20,7 @@ pipeline {
     environment {
         PROJECT_ID = 'ha-demo-480714'
         LOCATION = 'us-central1'
+        ZONE = 'us-central1-a' // Added specific zone for your shyam-cluster
         REPO_NAME = 'my-docker-repo'
         DOCKER_REGISTRY = "${LOCATION}-docker.pkg.dev/${PROJECT_ID}/${REPO_NAME}"
         
@@ -44,32 +44,31 @@ pipeline {
             steps {
                 script {
                     withCredentials([file(credentialsId: 'gcp-auth-key', variable: 'GCP_KEY_FILE')]) {
-                        echo "Installing Google Cloud SDK into Workspace..."
+                        echo "Configuring Google Cloud SDK..."
                         sh '''
-                            # Clean old install and install new into shared Workspace
                             rm -rf ${WORKSPACE}/google-cloud-sdk
                             apt-get update && apt-get install -y curl python3
                             curl -o install.sh -sSL https://sdk.cloud.google.com
                             bash install.sh --disable-prompts --install-dir=${WORKSPACE} > /dev/null
-                            
-                            # Create symlink so Host Docker Daemon can find the login helper
                             ln -sf ${WORKSPACE}/google-cloud-sdk/bin/docker-credential-gcloud /usr/bin/docker-credential-gcloud
                         '''
                         
                         def SDK_BIN = "${WORKSPACE}/google-cloud-sdk/bin"
                         
                         withEnv(["PATH+GCLOUD=${SDK_BIN}"]) {
-                            echo "Authenticating with GCP..."
                             sh "gcloud auth activate-service-account --key-file=${GCP_KEY_FILE}"
                             sh "gcloud auth configure-docker ${LOCATION}-docker.pkg.dev --quiet"
 
-                            echo "Pushing Images to Artifact Registry..."
+                            echo "Pushing Images to Artifact Registry: ${REPO_NAME}"
+                            // Backend
                             sh "docker build -t ${DOCKER_REGISTRY}/${BACKEND_IMAGE_NAME}:${VERSION} ./backend"
                             sh "docker push ${DOCKER_REGISTRY}/${BACKEND_IMAGE_NAME}:${VERSION}"
 
+                            // Frontend
                             sh "docker build -t ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION} ./frontend"
                             sh "docker push ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION}"
                             
+                            // Admin
                             sh "docker build -t ${DOCKER_REGISTRY}/${ADMIN_IMAGE_NAME}:${VERSION} ./admin"
                             sh "docker push ${DOCKER_REGISTRY}/${ADMIN_IMAGE_NAME}:${VERSION}"
                         }
@@ -80,30 +79,30 @@ pipeline {
 
         stage('Deploy to Kubernetes') {
             steps {
-                echo "Updating manifests and deploying to GKE..."
+                echo "Updating manifests and deploying to GKE Cluster: shyam-cluster..."
                 script {
                     def SDK_BIN = "${WORKSPACE}/google-cloud-sdk/bin"
                     
                     withEnv(["PATH+GCLOUD=${SDK_BIN}"]) {
-                        // 1. Point kubectl to your specific GKE cluster
-                        sh "gcloud container clusters get-credentials my-practice-cluster --region ${LOCATION} --project ${PROJECT_ID}"
+                        // FIX: Updated cluster name to 'shyam-cluster' and used --zone instead of --region
+                        sh "gcloud container clusters get-credentials shyam-cluster --zone ${ZONE} --project ${PROJECT_ID}"
 
-                        // 2. Deploy Frontend
+                        // Deploy Frontend
                         sh "sed -i 's|image: .*|image: ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION}|g' frontend/deployment.yml"
                         sh "kubectl apply -f frontend/deployment.yml"
 
-                        // 3. Deploy Backend
+                        // Deploy Backend
                         sh "sed -i 's|image: .*|image: ${DOCKER_REGISTRY}/${BACKEND_IMAGE_NAME}:${VERSION}|g' backend/deployment.yml"
                         sh "kubectl apply -f backend/deployment.yml"
 
-                        // 4. Deploy Admin
+                        // Deploy Admin
                         sh "sed -i 's|image: .*|image: ${DOCKER_REGISTRY}/${ADMIN_IMAGE_NAME}:${VERSION}|g' admin/deployment.yml"
                         sh "kubectl apply -f admin/deployment.yml"
                     }
                 }
             }
         }
-    } // End of Stages
+    }
 
     post {
         success { echo 'Full CI/CD Cycle Complete! Images pushed and GKE updated.' }
