@@ -21,7 +21,7 @@ pipeline {
     environment {
         PROJECT_ID = 'ha-demo-480714'
         LOCATION = 'us-central1'
-        REPO_NAME = 'my-app-repo'
+        REPO_NAME = 'my-docker-repo'
         DOCKER_REGISTRY = "${LOCATION}-docker.pkg.dev/${PROJECT_ID}/${REPO_NAME}"
         
         FRONTEND_IMAGE_NAME = "food-delivery-frontend"
