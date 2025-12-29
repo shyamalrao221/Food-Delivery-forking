@@ -2,12 +2,15 @@ pipeline {
     agent {
         docker {
             image 'node:lts'
+            // We mount the exact paths we verified on your VM host
             args '''--network host 
                     -u root 
                     -v /var/run/docker.sock:/var/run/docker.sock 
                     -v /usr/bin/docker:/usr/bin/docker
+                    -v /usr/bin/gcloud:/usr/bin/gcloud
                     -v /usr/bin/kubectl:/usr/bin/kubectl
                     -v /usr/bin/gke-gcloud-auth-plugin:/usr/bin/gke-gcloud-auth-plugin 
+                    -v /usr/lib/google-cloud-sdk:/usr/lib/google-cloud-sdk
                     -v /home/shyam:/home/shyam 
                     -e KUBECONFIG=/home/shyam/.kube/config'''
         }
@@ -24,84 +27,74 @@ pipeline {
         BACKEND_IMAGE_NAME = "food-delivery-backend"
         ADMIN_IMAGE_NAME = "food-delivery-admin"
         VERSION = "${env.BUILD_NUMBER}"
-        USE_GKE_GCLOUD_AUTH_PLUGIN = 'True'
     }
 
     stages {
         stage('Build: App Assets') {
             steps {
-                echo "Installing dependencies and building assets..."
+                echo "Building React and Node assets..."
                 dir('admin') { sh 'npm install --silent && npm run build' }
                 dir('frontend') { sh 'npm install --silent && npm run build' }
                 dir('backend') { sh 'npm install --silent' }
             }
         }
 
-        stage('Docker Build and Push to GCP') {
+        stage('Docker Build and Push') {
             steps {
                 script {
                     withCredentials([file(credentialsId: 'gcp-auth-key', variable: 'GCP_KEY_FILE')]) {
-                        sh '''
-                            rm -rf ${WORKSPACE}/google-cloud-sdk
-                            apt-get update && apt-get install -y curl python3
-                            curl -o install.sh -sSL https://sdk.cloud.google.com
-                            bash install.sh --disable-prompts --install-dir=${WORKSPACE} > /dev/null
-                            ${WORKSPACE}/google-cloud-sdk/bin/gcloud components install gke-gcloud-auth-plugin --quiet
-                        '''
-                        
-                        def SDK_BIN = "${WORKSPACE}/google-cloud-sdk/bin"
-                        withEnv(["PATH+GCLOUD=${SDK_BIN}"]) {
-                            sh "gcloud auth activate-service-account --key-file=${GCP_KEY_FILE}"
-                            sh "gcloud auth configure-docker ${LOCATION}-docker.pkg.dev --quiet"
+                        echo "Authenticating with GCP..."
+                        sh "gcloud auth activate-service-account --key-file=${GCP_KEY_FILE}"
+                        sh "gcloud auth configure-docker ${LOCATION}-docker.pkg.dev --quiet"
 
-                            // Build and Push all images
-                            ["backend":BACKEND_IMAGE_NAME, "frontend":FRONTEND_IMAGE_NAME, "admin":ADMIN_IMAGE_NAME].each { dirName, imgName ->
-                                sh "docker build -t ${DOCKER_REGISTRY}/${imgName}:${VERSION} ./${dirName}"
-                                sh "docker push ${DOCKER_REGISTRY}/${imgName}:${VERSION}"
-                            }
-                        }
+                        echo "Building and Pushing Images..."
+                        sh "docker build -t ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION} ./frontend"
+                        sh "docker push ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION}"
+                        
+                        sh "docker build -t ${DOCKER_REGISTRY}/${BACKEND_IMAGE_NAME}:${VERSION} ./backend"
+                        sh "docker push ${DOCKER_REGISTRY}/${BACKEND_IMAGE_NAME}:${VERSION}"
+
+                        sh "docker build -t ${DOCKER_REGISTRY}/${ADMIN_IMAGE_NAME}:${VERSION} ./admin"
+                        sh "docker push ${DOCKER_REGISTRY}/${ADMIN_IMAGE_NAME}:${VERSION}"
                     }
                 }
             }
         }
 
-        stage('Deploy to Kubernetes') {
+        stage('Deploy to GKE') {
             steps {
                 script {
-                    def SDK_BIN = "${WORKSPACE}/google-cloud-sdk/bin"
-                    withEnv(["PATH+GCLOUD=${SDK_BIN}"]) {
-                        sh "gcloud container clusters get-credentials shyam-cluster --zone ${ZONE} --project ${PROJECT_ID}"
+                    echo "Deploying to Kubernetes..."
+                    sh "gcloud container clusters get-credentials shyam-cluster --zone ${ZONE} --project ${PROJECT_ID}"
+                    
+                    // Frontend Update (includes the sidecar for Monitoring)
+                    sh "sed -i 's|image: .*|image: ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION}|g' frontend/deployment.yml"
+                    sh "kubectl apply -f frontend/deployment.yml"
 
-                        // Update images in manifests and apply
-                        sh "sed -i 's|image: .*frontend:.*|image: ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION}|g' frontend/deployment.yml"
-                        sh "kubectl apply -f frontend/deployment.yml"
-
-                        sh "sed -i 's|image: .*backend:.*|image: ${DOCKER_REGISTRY}/${BACKEND_IMAGE_NAME}:${VERSION}|g' backend/deployment.yml"
-                        sh "kubectl apply -f backend/deployment.yml"
-
-                        sh "sed -i 's|image: .*admin:.*|image: ${DOCKER_REGISTRY}/${ADMIN_IMAGE_NAME}:${VERSION}|g' admin/deployment.yml"
-                        sh "kubectl apply -f admin/deployment.yml"
-                    }
+                    // Backend & Admin Update
+                    sh "sed -i 's|image: .*|image: ${DOCKER_REGISTRY}/${BACKEND_IMAGE_NAME}:${VERSION}|g' backend/deployment.yml"
+                    sh "kubectl apply -f backend/deployment.yml"
+                    
+                    sh "sed -i 's|image: .*|image: ${DOCKER_REGISTRY}/${ADMIN_IMAGE_NAME}:${VERSION}|g' admin/deployment.yml"
+                    sh "kubectl apply -f admin/deployment.yml"
                 }
             }
         }
-
+        
         stage('Verify Monitoring') {
             steps {
-                script {
-                    def SDK_BIN = "${WORKSPACE}/google-cloud-sdk/bin"
-                    withEnv(["PATH+GCLOUD=${SDK_BIN}"]) {
-                        echo "Checking Monitoring Status..."
-                        // This ensures the PodMonitoring resource was created successfully
-                        sh "kubectl get podmonitoring"
-                    }
-                }
+                echo "Verifying GCP Managed Prometheus status..."
+                sh "kubectl get podmonitoring"
             }
         }
     }
 
     post {
-        success { echo 'Full CI/CD Cycle Complete with Monitoring active!' }
-        failure { echo 'Pipeline failed. Check Jenkins logs for GKE Auth or Docker errors.' }
+        success {
+            echo "Deployment successful! Metrics should appear in GCP Console shortly."
+        }
+        failure {
+            echo "Deployment failed. Check if gke-gcloud-auth-plugin is mapped correctly."
+        }
     }
 }
