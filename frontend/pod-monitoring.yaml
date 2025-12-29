@@ -1,0 +1,11 @@
+apiVersion: monitoring.googleapis.com/v1
+kind: PodMonitoring
+metadata:
+  name: frontend-monitoring
+spec:
+  selector:
+    matchLabels:
+      app: food-delivery-frontend-service
+  endpoints:
+  - port: 9113
+    interval: 30s
