@@ -23,21 +23,14 @@ pipeline {
             agent { 
                 docker { 
                     image 'node:20-alpine' 
-                    // --entrypoint="" allows Jenkins to run commands inside the container
                     args '--entrypoint="" -u root'
                 } 
             }
             steps {
                 echo "Installing dependencies and building assets..."
-                dir('admin') { 
-                    sh 'npm install --silent && npm run build' 
-                }
-                dir('frontend') { 
-                    sh 'npm install --silent && npm run build' 
-                }
-                dir('backend') { 
-                    sh 'npm install --silent' 
-                }
+                dir('admin') { sh 'npm install --silent && npm run build' }
+                dir('frontend') { sh 'npm install --silent && npm run build' }
+                dir('backend') { sh 'npm install --silent' }
             }
         }
 
@@ -45,13 +38,15 @@ pipeline {
             agent { 
                 docker { 
                     image 'google/cloud-sdk:latest'
-                    // Mount docker socket to allow building images inside the container
-                    args '--entrypoint="" -u root -v /var/run/docker.sock:/var/run/docker.sock'
+                    /* CRITICAL FIX: 
+                       1. -v /var/run/docker.sock: Connects the container to the host's Docker engine.
+                       2. -v /usr/bin/docker: Passes the Docker client binary into the container.
+                    */
+                    args '--entrypoint="" -u root -v /var/run/docker.sock:/var/run/docker.sock -v /usr/bin/docker:/usr/bin/docker'
                 } 
             }
             steps {
                 script {
-                    // 'gcp-auth-key' must match the ID of your Secret File credential in Jenkins
                     withCredentials([file(credentialsId: 'gcp-auth-key', variable: 'GCP_KEY_FILE')]) {
                         
                         echo "Authenticating with Google Cloud..."
@@ -60,20 +55,16 @@ pipeline {
                         sh "gcloud container clusters get-credentials shyam-cluster --zone ${ZONE} --project ${PROJECT_ID}"
 
                         echo "Building and Pushing Docker Images..."
-                        // Frontend (includes the Nginx sidecar logic defined in the Dockerfile/Manifest)
                         sh "docker build -t ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION} ./frontend"
                         sh "docker push ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION}"
                         
-                        // Backend
                         sh "docker build -t ${DOCKER_REGISTRY}/${BACKEND_IMAGE_NAME}:${VERSION} ./backend"
                         sh "docker push ${DOCKER_REGISTRY}/${BACKEND_IMAGE_NAME}:${VERSION}"
 
-                        // Admin
                         sh "docker build -t ${DOCKER_REGISTRY}/${ADMIN_IMAGE_NAME}:${VERSION} ./admin"
                         sh "docker push ${DOCKER_REGISTRY}/${ADMIN_IMAGE_NAME}:${VERSION}"
 
                         echo "Deploying to GKE Cluster..."
-                        // Update the images in the YAML manifests using sed
                         sh "sed -i 's|image: .*${FRONTEND_IMAGE_NAME}:.*|image: ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION}|g' frontend/deployment.yml"
                         sh "kubectl apply -f frontend/deployment.yml"
 
@@ -84,7 +75,6 @@ pipeline {
                         sh "kubectl apply -f admin/deployment.yml"
                         
                         echo "Verifying Monitoring Setup..."
-                        // This checks if Managed Prometheus is scraping your frontend
                         sh "kubectl get podmonitoring --all-namespaces"
                     }
                 }
