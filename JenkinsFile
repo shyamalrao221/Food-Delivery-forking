@@ -1,20 +1,5 @@
 pipeline {
-    agent {
-        docker {
-            image 'node:lts'
-            // We mount the exact paths we verified on your VM host
-            args '''--network host 
-                    -u root 
-                    -v /var/run/docker.sock:/var/run/docker.sock 
-                    -v /usr/bin/docker:/usr/bin/docker
-                    -v /usr/bin/gcloud:/usr/bin/gcloud
-                    -v /usr/bin/kubectl:/usr/bin/kubectl
-                    -v /usr/bin/gke-gcloud-auth-plugin:/usr/bin/gke-gcloud-auth-plugin 
-                    -v /usr/lib/google-cloud-sdk:/usr/lib/google-cloud-sdk
-                    -v /home/shyam:/home/shyam 
-                    -e KUBECONFIG=/home/shyam/.kube/config'''
-        }
-    }
+    agent none // We will define agents per stage
 
     environment {
         PROJECT_ID = 'ha-demo-480714'
@@ -31,6 +16,7 @@ pipeline {
 
     stages {
         stage('Build: App Assets') {
+            agent { docker { image 'node:20-alpine' } }
             steps {
                 echo "Building React and Node assets..."
                 dir('admin') { sh 'npm install --silent && npm run build' }
@@ -39,15 +25,25 @@ pipeline {
             }
         }
 
-        stage('Docker Build and Push') {
+        stage('Docker & GKE Operations') {
+            agent { 
+                docker { 
+                    image 'google/cloud-sdk:latest'
+                    // We mount the host's docker socket to build images
+                    args '-v /var/run/docker.sock:/var/run/docker.sock'
+                } 
+            }
             steps {
                 script {
                     withCredentials([file(credentialsId: 'gcp-auth-key', variable: 'GCP_KEY_FILE')]) {
-                        echo "Authenticating with GCP..."
+                        echo "Authenticating and Deploying..."
+                        
+                        // 1. Auth
                         sh "gcloud auth activate-service-account --key-file=${GCP_KEY_FILE}"
                         sh "gcloud auth configure-docker ${LOCATION}-docker.pkg.dev --quiet"
+                        sh "gcloud container clusters get-credentials shyam-cluster --zone ${ZONE} --project ${PROJECT_ID}"
 
-                        echo "Building and Pushing Images..."
+                        // 2. Build & Push
                         sh "docker build -t ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION} ./frontend"
                         sh "docker push ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION}"
                         
@@ -56,45 +52,27 @@ pipeline {
 
                         sh "docker build -t ${DOCKER_REGISTRY}/${ADMIN_IMAGE_NAME}:${VERSION} ./admin"
                         sh "docker push ${DOCKER_REGISTRY}/${ADMIN_IMAGE_NAME}:${VERSION}"
+
+                        // 3. Deploy (This will trigger Monitoring because of your sidecar config)
+                        sh "sed -i 's|image: .*|image: ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION}|g' frontend/deployment.yml"
+                        sh "kubectl apply -f frontend/deployment.yml"
+
+                        sh "sed -i 's|image: .*|image: ${DOCKER_REGISTRY}/${BACKEND_IMAGE_NAME}:${VERSION}|g' backend/deployment.yml"
+                        sh "kubectl apply -f backend/deployment.yml"
+                        
+                        sh "sed -i 's|image: .*|image: ${DOCKER_REGISTRY}/${ADMIN_IMAGE_NAME}:${VERSION}|g' admin/deployment.yml"
+                        sh "kubectl apply -f admin/deployment.yml"
+                        
+                        // 4. Verify Monitoring
+                        sh "kubectl get podmonitoring"
                     }
                 }
-            }
-        }
-
-        stage('Deploy to GKE') {
-            steps {
-                script {
-                    echo "Deploying to Kubernetes..."
-                    sh "gcloud container clusters get-credentials shyam-cluster --zone ${ZONE} --project ${PROJECT_ID}"
-                    
-                    // Frontend Update (includes the sidecar for Monitoring)
-                    sh "sed -i 's|image: .*|image: ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION}|g' frontend/deployment.yml"
-                    sh "kubectl apply -f frontend/deployment.yml"
-
-                    // Backend & Admin Update
-                    sh "sed -i 's|image: .*|image: ${DOCKER_REGISTRY}/${BACKEND_IMAGE_NAME}:${VERSION}|g' backend/deployment.yml"
-                    sh "kubectl apply -f backend/deployment.yml"
-                    
-                    sh "sed -i 's|image: .*|image: ${DOCKER_REGISTRY}/${ADMIN_IMAGE_NAME}:${VERSION}|g' admin/deployment.yml"
-                    sh "kubectl apply -f admin/deployment.yml"
-                }
-            }
-        }
-        
-        stage('Verify Monitoring') {
-            steps {
-                echo "Verifying GCP Managed Prometheus status..."
-                sh "kubectl get podmonitoring"
             }
         }
     }
 
     post {
-        success {
-            echo "Deployment successful! Metrics should appear in GCP Console shortly."
-        }
-        failure {
-            echo "Deployment failed. Check if gke-gcloud-auth-plugin is mapped correctly."
-        }
+        success { echo "Deployment and Monitoring setup complete!" }
+        failure { echo "Pipeline failed. Review GKE or Docker build logs." }
     }
 }
