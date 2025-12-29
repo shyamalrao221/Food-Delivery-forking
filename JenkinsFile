@@ -100,7 +100,12 @@ pipeline {
             }
         }
     }
-
+stage('Verify Monitoring') {
+            steps {
+                echo "Checking Monitoring Status..."
+                sh "kubectl get podmonitoring"
+            }
+        }
     post {
         success { echo 'Full CI/CD Cycle Complete!' }
         failure { echo 'Pipeline failed. Ensure gke-gcloud-auth-plugin is installed.' }
