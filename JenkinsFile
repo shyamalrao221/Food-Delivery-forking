@@ -1,27 +1,43 @@
 pipeline {
-    agent none // We will define agents per stage
+    agent none 
 
     environment {
+        // GCP Configuration
         PROJECT_ID = 'ha-demo-480714'
         LOCATION = 'us-central1'
         ZONE = 'us-central1-a'
         REPO_NAME = 'my-docker-repo'
         DOCKER_REGISTRY = "${LOCATION}-docker.pkg.dev/${PROJECT_ID}/${REPO_NAME}"
         
+        // Image Names
         FRONTEND_IMAGE_NAME = "food-delivery-frontend"
         BACKEND_IMAGE_NAME = "food-delivery-backend"
         ADMIN_IMAGE_NAME = "food-delivery-admin"
+        
+        // Build Versioning
         VERSION = "${env.BUILD_NUMBER}"
     }
 
     stages {
         stage('Build: App Assets') {
-            agent { docker { image 'node:20-alpine' } }
+            agent { 
+                docker { 
+                    image 'node:20-alpine' 
+                    // --entrypoint="" allows Jenkins to run commands inside the container
+                    args '--entrypoint="" -u root'
+                } 
+            }
             steps {
-                echo "Building React and Node assets..."
-                dir('admin') { sh 'npm install --silent && npm run build' }
-                dir('frontend') { sh 'npm install --silent && npm run build' }
-                dir('backend') { sh 'npm install --silent' }
+                echo "Installing dependencies and building assets..."
+                dir('admin') { 
+                    sh 'npm install --silent && npm run build' 
+                }
+                dir('frontend') { 
+                    sh 'npm install --silent && npm run build' 
+                }
+                dir('backend') { 
+                    sh 'npm install --silent' 
+                }
             }
         }
 
@@ -29,42 +45,47 @@ pipeline {
             agent { 
                 docker { 
                     image 'google/cloud-sdk:latest'
-                    // We mount the host's docker socket to build images
-                    args '-v /var/run/docker.sock:/var/run/docker.sock'
+                    // Mount docker socket to allow building images inside the container
+                    args '--entrypoint="" -u root -v /var/run/docker.sock:/var/run/docker.sock'
                 } 
             }
             steps {
                 script {
+                    // 'gcp-auth-key' must match the ID of your Secret File credential in Jenkins
                     withCredentials([file(credentialsId: 'gcp-auth-key', variable: 'GCP_KEY_FILE')]) {
-                        echo "Authenticating and Deploying..."
                         
-                        // 1. Auth
+                        echo "Authenticating with Google Cloud..."
                         sh "gcloud auth activate-service-account --key-file=${GCP_KEY_FILE}"
                         sh "gcloud auth configure-docker ${LOCATION}-docker.pkg.dev --quiet"
                         sh "gcloud container clusters get-credentials shyam-cluster --zone ${ZONE} --project ${PROJECT_ID}"
 
-                        // 2. Build & Push
+                        echo "Building and Pushing Docker Images..."
+                        // Frontend (includes the Nginx sidecar logic defined in the Dockerfile/Manifest)
                         sh "docker build -t ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION} ./frontend"
                         sh "docker push ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION}"
                         
+                        // Backend
                         sh "docker build -t ${DOCKER_REGISTRY}/${BACKEND_IMAGE_NAME}:${VERSION} ./backend"
                         sh "docker push ${DOCKER_REGISTRY}/${BACKEND_IMAGE_NAME}:${VERSION}"
 
+                        // Admin
                         sh "docker build -t ${DOCKER_REGISTRY}/${ADMIN_IMAGE_NAME}:${VERSION} ./admin"
                         sh "docker push ${DOCKER_REGISTRY}/${ADMIN_IMAGE_NAME}:${VERSION}"
 
-                        // 3. Deploy (This will trigger Monitoring because of your sidecar config)
-                        sh "sed -i 's|image: .*|image: ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION}|g' frontend/deployment.yml"
+                        echo "Deploying to GKE Cluster..."
+                        // Update the images in the YAML manifests using sed
+                        sh "sed -i 's|image: .*${FRONTEND_IMAGE_NAME}:.*|image: ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION}|g' frontend/deployment.yml"
                         sh "kubectl apply -f frontend/deployment.yml"
 
-                        sh "sed -i 's|image: .*|image: ${DOCKER_REGISTRY}/${BACKEND_IMAGE_NAME}:${VERSION}|g' backend/deployment.yml"
+                        sh "sed -i 's|image: .*${BACKEND_IMAGE_NAME}:.*|image: ${DOCKER_REGISTRY}/${BACKEND_IMAGE_NAME}:${VERSION}|g' backend/deployment.yml"
                         sh "kubectl apply -f backend/deployment.yml"
                         
-                        sh "sed -i 's|image: .*|image: ${DOCKER_REGISTRY}/${ADMIN_IMAGE_NAME}:${VERSION}|g' admin/deployment.yml"
+                        sh "sed -i 's|image: .*${ADMIN_IMAGE_NAME}:.*|image: ${DOCKER_REGISTRY}/${ADMIN_IMAGE_NAME}:${VERSION}|g' admin/deployment.yml"
                         sh "kubectl apply -f admin/deployment.yml"
                         
-                        // 4. Verify Monitoring
-                        sh "kubectl get podmonitoring"
+                        echo "Verifying Monitoring Setup..."
+                        // This checks if Managed Prometheus is scraping your frontend
+                        sh "kubectl get podmonitoring --all-namespaces"
                     }
                 }
             }
@@ -72,7 +93,11 @@ pipeline {
     }
 
     post {
-        success { echo "Deployment and Monitoring setup complete!" }
-        failure { echo "Pipeline failed. Review GKE or Docker build logs." }
+        success {
+            echo "SUCCESS: Project deployed to GCP. Visit the Monitoring dashboard to see metrics."
+        }
+        failure {
+            echo "FAILURE: Deployment failed. Check GKE credentials or Docker socket permissions."
+        }
     }
 }
