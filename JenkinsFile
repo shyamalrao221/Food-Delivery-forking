@@ -52,7 +52,7 @@ pipeline {
                         echo "Authenticating with Google Cloud..."
                         sh "gcloud auth activate-service-account --key-file=${GCP_KEY_FILE}"
                         sh "gcloud auth configure-docker ${LOCATION}-docker.pkg.dev --quiet"
-                        sh "gcloud container clusters get-credentials shyam-cluster --zone ${ZONE} --project ${PROJECT_ID}"
+                        sh "gcloud container clusters get-credentials shyam-cluster-tf --zone ${ZONE} --project ${PROJECT_ID}"
 
                         echo "Building and Pushing Docker Images..."
                         sh "docker build -t ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION} ./frontend"
