@@ -12,7 +12,7 @@ spec:
   type: LoadBalancer
   # Selector matches the labels defined in the Deployment's Pod template
   selector:
-    app: food-delivery-frontend
+    app: food-delivery-frontend-service
   ports:
     # Port on the Service
     - port: 80
