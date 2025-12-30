@@ -1,27 +1,25 @@
-# backend/Dockerfile
-# Use the official Node image as the base image
+# Use a glibc-based image (Debian)
 FROM node:lts-slim
 
-# Set the working directory
 WORKDIR /usr/src/app
 
-# Copy package.json and package-lock.json to the working directory
+# 1. Install build essentials (needed to compile bcrypt on Debian)
+RUN apt-get update && apt-get install -y \
+    python3 \
+    make \
+    g++ \
+    && rm -rf /var/lib/apt/lists/*
+
+# 2. Copy only dependency files first (better for Docker caching)
 COPY package*.json ./
 
-# Copy the rest of the application source code
-# We assume dependencies were installed during the build stage in Jenkins, 
-# but they need to be installed again in the final image, or copied from the workspace.
-# For simplicity, let's copy the entire backend folder contents.
+# 3. CRITICAL: Install dependencies fresh in this environment
+# This ensures bcrypt is compiled for glibc/Debian
+RUN npm install --production
+
+# 4. Copy the rest of the app code (but NOT the existing node_modules)
 COPY . .
 
-# Install production dependencies (if not done in Jenkins)
-# Since Jenkins ran 'npm install', we can skip this here if we copy node_modules,
-# but using npm ci is safer in the Docker build context.
-# RUN npm ci --only=production
-RUN npm install 
-
-# Expose the port the app runs on (e.g., 5000)
 EXPOSE 5000
 
-# Define the command to run the application
 CMD ["npm", "start"]
