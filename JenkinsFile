@@ -71,12 +71,9 @@ pipeline {
 
                         sh "sed -i 's|image: .*${BACKEND_IMAGE_NAME}:.*|image: ${DOCKER_REGISTRY}/${BACKEND_IMAGE_NAME}:${VERSION}|g' backend/deployment.yml"
                         sh "kubectl apply -f backend/deployment.yml"
-                        sh "kubectl apply -f backend/service.yml"
-
                         
                         sh "sed -i 's|image: .*${ADMIN_IMAGE_NAME}:.*|image: ${DOCKER_REGISTRY}/${ADMIN_IMAGE_NAME}:${VERSION}|g' admin/deployment.yml"
                         sh "kubectl apply -f admin/deployment.yml"
-                        sh "kubectl apply -f admin/service.yml" 
 
                         echo "Verifying Monitoring Setup..."
                         sh "kubectl get podmonitoring --all-namespaces"
