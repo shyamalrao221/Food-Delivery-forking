@@ -21,7 +21,7 @@ spec:
         env:
         - name: MONGO_URL
           # If password is 'Taylor@', use 'Taylor%40'
-          value: "mongodb+srv://shyam:Taylor%40@cluster0.xyz.mongodb.net/food-del"
+          value: mongodb://shyampadagala221_db_user:GF0fER3OUAX4e7oQ@148.156.116.4:27017/food-del
 
 ---
 apiVersion: v1
