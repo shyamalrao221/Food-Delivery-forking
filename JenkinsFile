@@ -2,7 +2,7 @@ pipeline {
     agent none 
 
     environment {
-        // GCP Configuration - UPDATED with your actual project ID
+        // GCP Configuration
         PROJECT_ID = 'sre-engineer-497304'
         LOCATION = 'us-central1'
         ZONE = 'us-central1-a'
@@ -47,11 +47,14 @@ pipeline {
             }
             steps {
                 script {
-                    withCredentials([file(credentialsId: 'gcp-auth-key', variable: 'GCP_KEY_FILE')]) {
+                    // FIX: Binds credential as 'string' instead of 'file' to handle Secret Text
+                    withCredentials([string(credentialsId: 'gcp-auth-key', variable: 'GCP_CREDS_JSON')]) {
                         
-                        echo "Authenticating with Google Cloud using User Credentials..."
-                        // FIX: Uses general credential login instead of service account activation
-                        sh "gcloud auth login --cred-file=${GCP_KEY_FILE} --quiet"
+                        echo "Configuring environment authentication..."
+                        // FIX: Injects user credential payload straight into the SDK environment engine
+                        env.CLOUDSDK_AUTH_CREDENTIAL_FILE_DATA = GCP_CREDS_JSON
+                        
+                        echo "Authenticating with Google Cloud..."
                         sh "gcloud auth configure-docker ${LOCATION}-docker.pkg.dev --quiet"
                         sh "gcloud container clusters get-credentials shyam-cluster-tf --zone ${ZONE} --project ${PROJECT_ID}"
 
