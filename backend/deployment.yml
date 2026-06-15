@@ -18,10 +18,28 @@ spec:
         image: us-central1-docker.pkg.dev/ha-demo-480714/my-app-repo/food-delivery-backend:latest
         ports:
         - containerPort: 5000
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 5000
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 5000
+          initialDelaySeconds: 10
+          periodSeconds: 10
         env:
+        - name: PORT
+          value: "5000"
         - name: MONGO_URL
           # If password is 'Taylor@', use 'Taylor%40'
           value: mongodb://shyampadagala221_db_user:GF0fER3OUAX4e7oQ@148.156.116.4:27017/food-del
+        - name: MONGO_SERVER_SELECTION_TIMEOUT_MS
+          value: "5000"
+        - name: MONGO_RETRY_DELAY_MS
+          value: "5000"
 
 ---
 apiVersion: v1
