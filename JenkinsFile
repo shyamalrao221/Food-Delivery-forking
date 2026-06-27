@@ -1,0 +1,98 @@
+pipeline {
+    agent none 
+
+    environment {
+        // GCP Configuration
+        PROJECT_ID = 'matchify-backend-shyamal-2026'
+        LOCATION = 'us-central1'
+        ZONE = 'us-central1-a'
+        REPO_NAME = 'my-docker-repo'
+        DOCKER_REGISTRY = "${LOCATION}-docker.pkg.dev/${PROJECT_ID}/${REPO_NAME}"
+        
+        // Image Names
+        FRONTEND_IMAGE_NAME = "food-delivery-frontend"
+        BACKEND_IMAGE_NAME = "food-delivery-backend"
+        ADMIN_IMAGE_NAME = "food-delivery-admin"
+        
+        // Build Versioning
+        VERSION = "${env.BUILD_NUMBER}"
+    }
+
+    stages {
+        stage('Build: App Assets') {
+            agent { 
+                docker { 
+                    image 'node:20-alpine' 
+                    args '--entrypoint="" -u root'
+                } 
+            }
+            steps {
+                echo "Installing dependencies and building assets..."
+                dir('admin') { sh 'npm install --silent && npm run build' }
+                dir('frontend') { sh 'npm install --silent && npm run build' }
+                dir('backend') { sh 'npm install --silent' }
+            }
+        }
+
+        stage('Docker & GKE Operations') {
+            agent { 
+                docker { 
+                    image 'google/cloud-sdk:latest'
+                    /* CRITICAL FIX: 
+                       1. -v /var/run/docker.sock: Connects the container to the host's Docker engine.
+                       2. -v /usr/bin/docker: Passes the Docker client binary into the container.
+                    */
+                    args '--entrypoint="" -u root -v /var/run/docker.sock:/var/run/docker.sock -v /usr/bin/docker:/usr/bin/docker'
+                } 
+            }
+            steps {
+                script {
+                    // FIX: Binds credential as 'string' instead of 'file' to handle Secret Text
+                    withCredentials([string(credentialsId: 'gcp-auth-key', variable: 'GCP_CREDS_JSON')]) {
+                        
+                        echo "Configuring environment authentication..."
+                        // FIX: Injects user credential payload straight into the SDK environment engine
+                        env.CLOUDSDK_AUTH_CREDENTIAL_FILE_DATA = GCP_CREDS_JSON
+                        
+                        echo "Authenticating with Google Cloud..."
+                        sh "gcloud auth configure-docker ${LOCATION}-docker.pkg.dev --quiet"
+                        sh "gcloud container clusters get-credentials shyam-cluster-tf --zone ${ZONE} --project ${PROJECT_ID}"
+
+                        echo "Building and Pushing Docker Images..."
+                        sh "docker build -t ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION} ./frontend"
+                        sh "docker push ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION}"
+                        
+                        sh "docker build -t ${DOCKER_REGISTRY}/${BACKEND_IMAGE_NAME}:${VERSION} ./backend"
+                        sh "docker push ${DOCKER_REGISTRY}/${BACKEND_IMAGE_NAME}:${VERSION}"
+
+                        sh "docker build -t ${DOCKER_REGISTRY}/${ADMIN_IMAGE_NAME}:${VERSION} ./admin"
+                        sh "docker push ${DOCKER_REGISTRY}/${ADMIN_IMAGE_NAME}:${VERSION}"
+
+                        echo "Deploying to GKE Cluster..."
+                        sh "sed -i 's|image: .*${FRONTEND_IMAGE_NAME}:.*|image: ${DOCKER_REGISTRY}/${FRONTEND_IMAGE_NAME}:${VERSION}|g' frontend/deployment.yml"
+                        sh "kubectl apply -f frontend/deployment.yml"
+                        sh "kubectl apply -f frontend/service.yml"
+
+                        sh "sed -i 's|image: .*${BACKEND_IMAGE_NAME}:.*|image: ${DOCKER_REGISTRY}/${BACKEND_IMAGE_NAME}:${VERSION}|g' backend/deployment.yml"
+                        sh "kubectl apply -f backend/deployment.yml"
+                        
+                        sh "sed -i 's|image: .*${ADMIN_IMAGE_NAME}:.*|image: ${DOCKER_REGISTRY}/${ADMIN_IMAGE_NAME}:${VERSION}|g' admin/deployment.yml"
+                        sh "kubectl apply -f admin/deployment.yml"
+
+                        echo "Verifying Monitoring Setup..."
+                        sh "kubectl get podmonitoring --all-namespaces"
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "SUCCESS: Project deployed to GCP. Visit the Monitoring dashboard to see metrics."
+        }
+        failure {
+            echo "FAILURE: Deployment failed. Check GKE credentials or Docker socket permissions."
+        }
+    }
+}

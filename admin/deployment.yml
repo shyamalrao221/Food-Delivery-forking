@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: food-delivery-admin-deployment
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 0
+  selector:
+    matchLabels:
+      app: food-delivery-admin
+  template:
+    metadata:
+      labels:
+        app: food-delivery-admin
+    spec:
+      containers:
+      - name: food-delivery-admin
+        image: us-central1-docker.pkg.dev/matchify-backend-shyamal-2026/my-docker-repo/food-delivery-admin:7
+        ports:
+        - containerPort: 80
+        resources:
+          requests:
+            cpu: "25m"
+            memory: "128Mi"
+          limits:
+            cpu: "150m"
+            memory: "256Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: food-delivery-admin-service
+spec:
+  type: LoadBalancer
+  selector:
+    app: food-delivery-admin
+  ports:
+    - port: 80
+      targetPort: 80
